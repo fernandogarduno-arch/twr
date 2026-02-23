@@ -343,6 +343,48 @@ function InlineSelect({ value, onChange, options, placeholder, createLabel, crea
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  TOAST NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+let _toastFn = null
+export const toast = (msg, type = 'success') => _toastFn && _toastFn(msg, type)
+
+function ToastContainer() {
+  const [toasts, setToasts] = useState([])
+  useEffect(() => {
+    _toastFn = (msg, type) => {
+      const id = uid()
+      setToasts(t => [...t, { id, msg, type }])
+      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000)
+    }
+    return () => { _toastFn = null }
+  }, [])
+
+  const colors = { success: GRN, error: RED, info: G, warning: '#E67E22' }
+
+  return (
+    <div style={{ position: 'fixed', bottom: 24, right: 24, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 9999, pointerEvents: 'none' }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: S1, border: `1px solid ${colors[t.type] || GRN}`,
+          borderLeft: `3px solid ${colors[t.type] || GRN}`,
+          borderRadius: 4, padding: '10px 16px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          fontFamily: "'DM Mono', monospace", fontSize: 11, color: TX,
+          boxShadow: '0 4px 20px rgba(0,0,0,.5)',
+          animation: 'fi .2s ease',
+          minWidth: 220, maxWidth: 360,
+        }}>
+          <span style={{ color: colors[t.type] || GRN, fontSize: 13 }}>
+            {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : t.type === 'warning' ? '⚠' : '·'}
+          </span>
+          {t.msg}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  UI ATOMS
 // ══════════════════════════════════════════════════════════════════════════════
 function Badge({ label, color, small }) {
@@ -560,6 +602,7 @@ function InventarioModule({ state, setState }) {
     const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }
     setState(s => ({ ...s, watches: [...s.watches, watch] }))
     await db.saveWatch(watch)
+    toast('Pieza registrada en inventario')
     setShowAdd(false); setWf({ ...blank })
   }
 
@@ -570,6 +613,7 @@ function InventarioModule({ state, setState }) {
     setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updatedWatch) }))
     setSelWatch(updatedWatch)
     await db.saveCosto(newCosto)
+    toast('Costo adicional registrado')
     setShowAddCosto(false)
     setCostoForm({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
   }
@@ -579,6 +623,7 @@ function InventarioModule({ state, setState }) {
     setState(s => ({ ...s, watches: s.watches.map(x => x.id !== w.id ? x : { ...x, stage: 'inventario', status: 'Disponible', validatedBy: 'Director', validationDate: tod(), entryDate: tod() }) }))
     setSelWatch(p => ({ ...p, stage: 'inventario', status: 'Disponible', validatedBy: 'Director' }))
     await db.updateWatchStage(w.id, 'inventario', 'Disponible', extra)
+    toast('Pieza aprobada · ahora en inventario')
   }
 
   const saveSale = async () => {
@@ -592,6 +637,7 @@ function InventarioModule({ state, setState }) {
     setSelWatch(p => ({ ...p, status: 'Vendido', stage: 'liquidado' }))
     await db.updateWatchStage(selWatch.id, 'liquidado', 'Vendido')
     await db.saveVenta(sale)
+    toast('Venta registrada correctamente')
     setShowSale(false); setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
   }
 
@@ -609,6 +655,7 @@ function InventarioModule({ state, setState }) {
       })
     }))
     await db.savePago(pago)
+    toast('Pago registrado')
     setShowPay(null); setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
   }
 
@@ -1095,6 +1142,7 @@ function VentasModule({ state, setState }) {
       })
     }))
     await db.savePago(pago)
+    toast('Pago registrado')
     setShowPay(null); setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
   }
 
@@ -1267,39 +1315,133 @@ function ReportesModule({ state }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function CatalogosModule({ state, setState }) {
   const { brands, models, refs, tiposCosto } = state
-  const [tab, setTab]         = useState('marcas')
+  const [tab, setTab]           = useState('marcas')
   const [selBrand, setSelBrand] = useState(null)
   const [selModel, setSelModel] = useState(null)
-  const [showBrandForm, setShowBrandForm] = useState(false)
-  const [showModelForm, setShowModelForm] = useState(false)
-  const [showRefForm, setShowRefForm]     = useState(false)
+
+  // Form visibility
+  const [showBrandForm, setShowBrandForm]   = useState(false)
+  const [showModelForm, setShowModelForm]   = useState(false)
+  const [showRefForm, setShowRefForm]       = useState(false)
+
+  // Edit targets
+  const [editBrand, setEditBrand] = useState(null)
+  const [editModel, setEditModel] = useState(null)
+  const [editRef, setEditRef]     = useState(null)
+
+  // Form values — shared between add and edit
   const [bf, setBf] = useState({ name: '', country: 'Suiza', founded: '', notes: '' })
   const [mf, setMf] = useState({ brandId: '', name: '', family: '', notes: '' })
   const [rf, setRf] = useState({ modelId: '', ref: '', caliber: '', material: 'Acero', bezel: '', dial: '', size: '', bracelet: '', year: '', notes: '' })
 
+  const [saving, setSaving] = useState(false)
+
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
 
+  // ── Open form helpers ──────────────────────────────────────────────────────
+  const openAddBrand  = ()    => { setEditBrand(null);  setBf({ name: '', country: 'Suiza', founded: '', notes: '' }); setShowBrandForm(true) }
+  const openEditBrand = (b)   => { setEditBrand(b);     setBf({ name: b.name, country: b.country || 'Suiza', founded: b.founded || '', notes: b.notes || '' }); setShowBrandForm(true) }
+  const openAddModel  = ()    => { setEditModel(null);  setMf({ brandId: selBrand?.id || '', name: '', family: '', notes: '' }); setShowModelForm(true) }
+  const openEditModel = (m)   => { setEditModel(m);     setMf({ brandId: m.brandId, name: m.name, family: m.family || '', notes: m.notes || '' }); setShowModelForm(true) }
+  const openAddRef    = ()    => { setEditRef(null);    setRf({ modelId: selModel?.id || '', ref: '', caliber: '', material: 'Acero', bezel: '', dial: '', size: '', bracelet: '', year: '', notes: '' }); setShowRefForm(true) }
+  const openEditRef   = (r)   => { setEditRef(r);      setRf({ modelId: r.modelId, ref: r.ref, caliber: r.caliber || '', material: r.material || 'Acero', bezel: r.bezel || '', dial: r.dial || '', size: r.size || '', bracelet: r.bracelet || '', year: r.year || '', notes: r.notes || '' }); setShowRefForm(true) }
+
+  // ── Save ──────────────────────────────────────────────────────────────────
   const saveBrand = async () => {
-    const brand = { ...bf, id: 'B' + uid() }
-    setState(s => ({ ...s, brands: [...s.brands, brand] }))
-    await db.saveBrand(brand)
-    setShowBrandForm(false); setBf({ name: '', country: 'Suiza', founded: '', notes: '' })
+    if (saving) return
+    setSaving(true)
+    if (editBrand) {
+      const updated = { ...editBrand, ...bf }
+      setState(s => ({ ...s, brands: s.brands.map(b => b.id !== editBrand.id ? b : updated) }))
+      await db.saveBrand(updated)
+    } else {
+      const brand = { ...bf, id: 'B' + uid() }
+      setState(s => ({ ...s, brands: [...s.brands, brand] }))
+      await db.saveBrand(brand)
+    toast(editBrand ? 'Marca actualizada' : 'Marca guardada correctamente')
+    }
+    setShowBrandForm(false)
+    setSaving(false)
   }
+
   const saveModel = async () => {
-    const model = { ...mf, id: 'M' + uid() }
-    setState(s => ({ ...s, models: [...s.models, model] }))
-    await db.saveModel(model)
-    setShowModelForm(false); setMf({ brandId: '', name: '', family: '', notes: '' })
+    if (saving) return
+    setSaving(true)
+    if (editModel) {
+      const updated = { ...editModel, ...mf }
+      setState(s => ({ ...s, models: s.models.map(m => m.id !== editModel.id ? m : updated) }))
+      await db.saveModel(updated)
+    } else {
+      const model = { ...mf, id: 'M' + uid() }
+      setState(s => ({ ...s, models: [...s.models, model] }))
+      await db.saveModel(model)
+    }
+    toast(editModel ? 'Modelo actualizado' : 'Modelo guardado correctamente')
+    setShowModelForm(false)
+    setSaving(false)
   }
+
   const saveRef = async () => {
-    const ref = { ...rf, id: 'R' + uid(), year: +rf.year }
-    setState(s => ({ ...s, refs: [...s.refs, ref] }))
-    await db.saveRef(ref)
-    setShowRefForm(false); setRf({ modelId: '', ref: '', caliber: '', material: 'Acero', bezel: '', dial: '', size: '', bracelet: '', year: '', notes: '' })
+    if (saving) return
+    setSaving(true)
+    if (editRef) {
+      const updated = { ...editRef, ...rf, year: +rf.year }
+      setState(s => ({ ...s, refs: s.refs.map(r => r.id !== editRef.id ? r : updated) }))
+      await db.saveRef(updated)
+    } else {
+      const ref = { ...rf, id: 'R' + uid(), year: +rf.year }
+      setState(s => ({ ...s, refs: [...s.refs, ref] }))
+      await db.saveRef(ref)
+    }
+    toast(editRef ? 'Referencia actualizada' : 'Referencia guardada correctamente')
+    setShowRefForm(false)
+    setSaving(false)
+  }
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  const delBrand = async (b) => {
+    if (!window.confirm(`¿Eliminar "${b.name}"? Se eliminarán también sus modelos y referencias.`)) return
+    setState(s => {
+      const modelIds = s.models.filter(m => m.brandId === b.id).map(m => m.id)
+      return {
+        ...s,
+        brands: s.brands.filter(x => x.id !== b.id),
+        models: s.models.filter(m => m.brandId !== b.id),
+        refs:   s.refs.filter(r => !modelIds.includes(r.modelId)),
+      }
+    })
+    await sb.from('marcas').delete().eq('id', b.id)
+    toast('Marca eliminada', 'info')
+    if (selBrand?.id === b.id) setSelBrand(null)
+  }
+
+  const delModel = async (m) => {
+    if (!window.confirm(`¿Eliminar "${m.name}"? Se eliminarán también sus referencias.`)) return
+    setState(s => ({
+      ...s,
+      models: s.models.filter(x => x.id !== m.id),
+      refs:   s.refs.filter(r => r.modelId !== m.id),
+    }))
+    await sb.from('modelos').delete().eq('id', m.id)
+    toast('Modelo eliminado', 'info')
+    if (selModel?.id === m.id) setSelModel(null)
+  }
+
+  const delRef = async (r) => {
+    if (!window.confirm(`¿Eliminar referencia "${r.ref}"?`)) return
+    setState(s => ({ ...s, refs: s.refs.filter(x => x.id !== r.id) }))
+    await sb.from('referencias').delete().eq('id', r.id)
+    toast('Referencia eliminada', 'info')
   }
 
   const filteredModels = selBrand ? models.filter(m => m.brandId === selBrand.id) : models
   const filteredRefs   = selModel ? refs.filter(r => r.modelId === selModel.id) : refs
+
+  // ── Small action button style ─────────────────────────────────────────────
+  const actionBtn = (color = TM) => ({
+    background: 'none', border: 'none', color, cursor: 'pointer',
+    fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 6px'
+  })
 
   return (
     <div>
@@ -1321,7 +1463,7 @@ function CatalogosModule({ state, setState }) {
       )}
 
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: `1px solid ${BR}` }}>
-        {[['marcas', 'Marcas', brands.length], ['modelos', 'Modelos', models.length], ['referencias', 'Referencias', refs.length], ['costos', 'Tipos de Costo', (state.tiposCosto||[]).length]].map(([id, label, n]) => (
+        {[['marcas', 'Marcas', brands.length], ['modelos', 'Modelos', models.length], ['referencias', 'Referencias', refs.length], ['costos', 'Tipos de Costo', (tiposCosto||[]).length]].map(([id, label, n]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ padding: '10px 20px', background: 'none', border: 'none', borderBottom: tab === id ? `2px solid ${G}` : '2px solid transparent', color: tab === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
             {label} <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: tab === id ? G : TD, marginLeft: 4 }}>{n}</span>
@@ -1329,36 +1471,56 @@ function CatalogosModule({ state, setState }) {
         ))}
       </div>
 
+      {/* ── MARCAS ─────────────────────────────────────────────────────────── */}
       {tab === 'marcas' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}><Btn onClick={() => setShowBrandForm(true)}>+ Nueva Marca</Btn></div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={openAddBrand}>+ Nueva Marca</Btn>
+          </div>
+          {brands.length === 0 && (
+            <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
+              Sin marcas · click "+ Nueva Marca" para empezar
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
             {brands.map(b => {
               const mc = models.filter(m => m.brandId === b.id).length
               const rc = refs.filter(r => models.filter(m => m.brandId === b.id).map(m => m.id).includes(r.modelId)).length
               return (
-                <div key={b.id} onClick={() => { setSelBrand(b); setTab('modelos') }}
-                  style={{ background: S1, border: `1px solid ${selBrand?.id === b.id ? G : BR}`, borderRadius: 6, padding: 16, cursor: 'pointer' }}
-                  onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = S1}>
-                  <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: TX, marginBottom: 6 }}>{b.name}</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 10 }}>{b.country} · Est. {b.founded}</div>
-                  <div style={{ display: 'flex', gap: 8 }}><Badge label={`${mc} modelos`} color={BLU} small /><Badge label={`${rc} refs`} color={G} small /></div>
+                <div key={b.id} style={{ background: S1, border: `1px solid ${selBrand?.id === b.id ? G : BR}`, borderRadius: 6, padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <div onClick={() => { setSelBrand(b); setTab('modelos') }} style={{ cursor: 'pointer', flex: 1 }}>
+                      <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: TX }}>{b.name}</div>
+                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>{b.country} · Est. {b.founded || '—'}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      <button onClick={() => openEditBrand(b)} style={actionBtn(TM)}>EDITAR</button>
+                      <button onClick={() => delBrand(b)} style={actionBtn(RED)}>✕</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <Badge label={`${mc} modelos`} color={BLU} small />
+                    <Badge label={`${rc} refs`} color={G} small />
+                  </div>
                 </div>
               )
             })}
-            <div onClick={() => setShowBrandForm(true)} style={{ background: 'transparent', border: `1px dashed ${BR}`, borderRadius: 6, padding: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>+ Agregar marca</span>
-            </div>
           </div>
         </div>
       )}
 
+      {/* ── MODELOS ────────────────────────────────────────────────────────── */}
       {tab === 'modelos' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{selBrand ? `Modelos de ${selBrand.name}` : 'Todos los modelos'}</div>
-            <Btn onClick={() => setShowModelForm(true)}>+ Nuevo Modelo</Btn>
+            <Btn onClick={openAddModel}>+ Nuevo Modelo</Btn>
           </div>
+          {filteredModels.length === 0 && (
+            <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
+              Sin modelos{selBrand ? ` para ${selBrand.name}` : ''}
+            </div>
+          )}
           <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Marca', 'Modelo', 'Familia', 'Referencias', ''].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
@@ -1366,13 +1528,17 @@ function CatalogosModule({ state, setState }) {
                 {filteredModels.map(m => {
                   const b = brands.find(b => b.id === m.brandId), rc = refs.filter(r => r.modelId === m.id).length
                   return (
-                    <tr key={m.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <tr key={m.id} style={{ borderBottom: `1px solid ${BR}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = S2}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{b?.name}</td>
                       <td style={{ padding: '11px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{m.name}</td>
                       <td style={{ padding: '11px 16px' }}><Badge label={m.family || '—'} color={BLU} small /></td>
                       <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{rc}</td>
-                      <td style={{ padding: '11px 16px', textAlign: 'right' }}>
-                        <button onClick={() => { setSelModel(m); setTab('referencias') }} style={{ background: 'none', border: `1px solid ${BR}`, color: TM, padding: '4px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>VER REFS →</button>
+                      <td style={{ padding: '11px 16px', textAlign: 'right', display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                        <button onClick={() => { setSelModel(m); setTab('referencias') }} style={{ background: 'none', border: `1px solid ${BR}`, color: TM, padding: '4px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>REFS →</button>
+                        <button onClick={() => openEditModel(m)} style={actionBtn(TM)}>EDITAR</button>
+                        <button onClick={() => delModel(m)} style={actionBtn(RED)}>✕</button>
                       </td>
                     </tr>
                   )
@@ -1383,12 +1549,18 @@ function CatalogosModule({ state, setState }) {
         </div>
       )}
 
+      {/* ── REFERENCIAS ────────────────────────────────────────────────────── */}
       {tab === 'referencias' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{selModel ? `Referencias de ${selModel.name}` : 'Todas las referencias'}</div>
-            <Btn onClick={() => setShowRefForm(true)}>+ Nueva Referencia</Btn>
+            <Btn onClick={openAddRef}>+ Nueva Referencia</Btn>
           </div>
+          {filteredRefs.length === 0 && (
+            <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
+              Sin referencias{selModel ? ` para ${selModel.name}` : ''}
+            </div>
+          )}
           <div style={{ display: 'grid', gap: 10 }}>
             {filteredRefs.map(r => {
               const m = models.find(m => m.id === r.modelId), b = brands.find(b => b.id === m?.brandId)
@@ -1398,6 +1570,10 @@ function CatalogosModule({ state, setState }) {
                     <div>
                       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, color: TX }}>{b?.name} {m?.name}</div>
                       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: G, marginTop: 2 }}>{r.ref}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button onClick={() => openEditRef(r)} style={actionBtn(TM)}>EDITAR</button>
+                      <button onClick={() => delRef(r)} style={actionBtn(RED)}>✕</button>
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
@@ -1415,82 +1591,7 @@ function CatalogosModule({ state, setState }) {
         </div>
       )}
 
-      {/* BRAND FORM */}
-      {showBrandForm && (
-        <Modal title="Nueva Marca" onClose={() => setShowBrandForm(false)} width={480}>
-          <FR>
-            <Field label="Nombre" required><input value={bf.name} onChange={e => setBf(f => ({ ...f, name: e.target.value }))} placeholder="Ej: Rolex" style={inputStyle} /></Field>
-            <Field label="País"><input value={bf.country} onChange={e => setBf(f => ({ ...f, country: e.target.value }))} placeholder="Suiza" style={inputStyle} /></Field>
-          </FR>
-          <FR>
-            <Field label="Año fundación"><input type="number" value={bf.founded} onChange={e => setBf(f => ({ ...f, founded: e.target.value }))} placeholder="1905" style={inputStyle} /></Field>
-            <Field label="Notas"><input value={bf.notes} onChange={e => setBf(f => ({ ...f, notes: e.target.value }))} style={inputStyle} /></Field>
-          </FR>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn variant="secondary" small onClick={() => setShowBrandForm(false)}>Cancelar</Btn>
-            <Btn small onClick={saveBrand} disabled={!bf.name}>Guardar</Btn>
-          </div>
-        </Modal>
-      )}
-
-      {/* MODEL FORM */}
-      {showModelForm && (
-        <Modal title="Nuevo Modelo" onClose={() => setShowModelForm(false)} width={480}>
-          <FR>
-            <Field label="Marca" required>
-              <select value={mf.brandId} onChange={e => setMf(f => ({ ...f, brandId: e.target.value }))} style={{ ...inputStyle }}>
-                <option value="">— Seleccionar —</option>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Nombre" required><input value={mf.name} onChange={e => setMf(f => ({ ...f, name: e.target.value }))} placeholder="Ej: Submariner" style={inputStyle} /></Field>
-          </FR>
-          <FR>
-            <Field label="Familia">
-              <select value={mf.family} onChange={e => setMf(f => ({ ...f, family: e.target.value }))} style={{ ...inputStyle }}>
-                {['', 'Sport', 'Dress', 'Sport-Luxury', 'Complications'].map(x => <option key={x} value={x}>{x || '— Seleccionar —'}</option>)}
-              </select>
-            </Field>
-            <Field label="Notas"><input value={mf.notes} onChange={e => setMf(f => ({ ...f, notes: e.target.value }))} style={inputStyle} /></Field>
-          </FR>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn variant="secondary" small onClick={() => setShowModelForm(false)}>Cancelar</Btn>
-            <Btn small onClick={saveModel} disabled={!mf.brandId || !mf.name}>Guardar</Btn>
-          </div>
-        </Modal>
-      )}
-
-      {/* REF FORM */}
-      {showRefForm && (
-        <Modal title="Nueva Referencia" onClose={() => setShowRefForm(false)} width={600}>
-          <FR>
-            <Field label="Modelo" required>
-              <select value={rf.modelId} onChange={e => setRf(f => ({ ...f, modelId: e.target.value }))} style={{ ...inputStyle }}>
-                <option value="">— Seleccionar —</option>{models.map(m => { const b = brands.find(b => b.id === m.brandId); return <option key={m.id} value={m.id}>{b?.name} {m.name}</option> })}</select>
-            </Field>
-            <Field label="Número de referencia" required><input value={rf.ref} onChange={e => setRf(f => ({ ...f, ref: e.target.value }))} placeholder="126610LN" style={inputStyle} /></Field>
-          </FR>
-          <FR>
-            <Field label="Calibre"><input value={rf.caliber} onChange={e => setRf(f => ({ ...f, caliber: e.target.value }))} placeholder="3235" style={inputStyle} /></Field>
-            <Field label="Material">
-              <select value={rf.material} onChange={e => setRf(f => ({ ...f, material: e.target.value }))} style={{ ...inputStyle }}>
-                {['Acero', 'Oro Amarillo', 'Oro Blanco', 'Oro Rosa', 'Platino', 'Bimetálico', 'Titanio', 'Cerámica'].map(x => <option key={x}>{x}</option>)}
-              </select>
-            </Field>
-          </FR>
-          <FR>
-            <Field label="Bisel"><input value={rf.bezel} onChange={e => setRf(f => ({ ...f, bezel: e.target.value }))} placeholder="Cerámica negra" style={inputStyle} /></Field>
-            <Field label="Esfera"><input value={rf.dial} onChange={e => setRf(f => ({ ...f, dial: e.target.value }))} placeholder="Negro" style={inputStyle} /></Field>
-          </FR>
-          <FR>
-            <Field label="Tamaño"><input value={rf.size} onChange={e => setRf(f => ({ ...f, size: e.target.value }))} placeholder="41mm" style={inputStyle} /></Field>
-            <Field label="Año producción"><input type="number" value={rf.year} onChange={e => setRf(f => ({ ...f, year: e.target.value }))} placeholder="2021" style={inputStyle} /></Field>
-          </FR>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn variant="secondary" small onClick={() => setShowRefForm(false)}>Cancelar</Btn>
-            <Btn small onClick={saveRef} disabled={!rf.modelId || !rf.ref}>Guardar</Btn>
-          </div>
-        </Modal>
-      )}
+      {/* ── TIPOS DE COSTO ─────────────────────────────────────────────────── */}
       {tab === 'costos' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
@@ -1504,331 +1605,98 @@ function CatalogosModule({ state, setState }) {
             }}>+ Nuevo Tipo</Btn>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-            {(state.tiposCosto || []).map(t => (
-              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>{t.icono}</span>
-                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
+            {(tiposCosto || []).map(t => (
+              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>{t.icono}</span>
+                  <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
+                </div>
+                <button onClick={async () => {
+                  if (!window.confirm(`¿Eliminar "${t.nombre}"?`)) return
+                  setState(s => ({ ...s, tiposCosto: s.tiposCosto.filter(x => x.id !== t.id) }))
+                  await sb.from('tipos_costo').delete().eq('id', t.id)
+                  toast('Tipo de costo eliminado', 'info')
+                }} style={actionBtn(RED)}>✕</button>
               </div>
             ))}
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-function Btn({ children, onClick, variant = 'primary', small, disabled, full, type = 'button' }) {
-  const vs = {
-    primary:   { background: G,   color: BG,  border: 'none' },
-    secondary: { background: 'transparent', color: TM,  border: `1px solid ${BR}` },
-    danger:    { background: RED + '22', color: RED, border: `1px solid ${RED}44` },
-    ghost:     { background: 'transparent', color: G,   border: `1px solid ${BRG}` },
-  }
-  return (
-    <button type={type} onClick={!disabled ? onClick : undefined}
-      style={{ ...vs[variant], padding: small ? '6px 13px' : '9px 20px', fontSize: small ? 11 : 13, fontFamily: "'Jost', sans-serif", fontWeight: 500, letterSpacing: '.06em', cursor: disabled ? 'not-allowed' : 'pointer', borderRadius: 3, opacity: disabled ? .45 : 1, width: full ? '100%' : 'auto' }}>
-      {children}
-    </button>
-  )
-}
-
-function Modal({ title, children, onClose, width = 640 }) {
-  return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.84)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, width: '100%', maxWidth: width, maxHeight: '92vh', overflow: 'auto', animation: 'fi .25s ease' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: `1px solid ${BR}` }}>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: TX }}>{title}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TM, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
-        </div>
-        <div style={{ padding: 22 }}>{children}</div>
-      </div>
-    </div>
-  )
-}
-
-function FR({ children, cols = 2, gap = 14 }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap, marginBottom: 14 }}>{children}</div>
-}
-
-function Field({ label, children, required }) {
-  return (
-    <div>
-      <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-        {label}{required && <span style={{ color: RED }}> *</span>}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-function SH({ title, subtitle, action, onAction }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 }}>
-      <div>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, color: TX, fontWeight: 400 }}>{title}</div>
-        {subtitle && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginTop: 3, letterSpacing: '.06em' }}>{subtitle}</div>}
-      </div>
-      {action && <Btn onClick={onAction}>{action}</Btn>}
-    </div>
-  )
-}
-
-function Divider({ label }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px' }}>
-      <div style={{ flex: 1, height: 1, background: BR }} />
-      {label && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em' }}>{label}</span>}
-      <div style={{ flex: 1, height: 1, background: BR }} />
-    </div>
-  )
-}
-
-function InfoRow({ label, value, color }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${BR}` }}>
-      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{label}</span>
-      <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: color || TX, fontWeight: color ? 500 : 400 }}>{value}</span>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  AUTH SCREEN
-// ══════════════════════════════════════════════════════════════════════════════
-function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState('login')
-  const [form, setForm] = useState({ email: '', password: '', name: '', confirm: '' })
-  const [err, setErr] = useState('')
-  const [loading, setLoading] = useState(false)
-  const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
-
-  const handleLogin = async () => {
-    setErr(''); setLoading(true)
-    const { data, error } = await sb.auth.signInWithPassword({ email: form.email, password: form.password })
-    if (error) { setErr(error.message); setLoading(false); return }
-    const { data: profile } = await sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
-    onAuth(data.user, profile)
-    setLoading(false)
-  }
-
-  const handleRegister = async () => {
-    setErr('')
-    if (form.password !== form.confirm) { setErr('Las contraseñas no coinciden'); return }
-    if (form.password.length < 8) { setErr('Mínimo 8 caracteres'); return }
-    setLoading(true)
-    const { data, error } = await sb.auth.signUp({ email: form.email, password: form.password })
-    if (error) { setErr(error.message); setLoading(false); return }
-    if (data.user) {
-      await sb.from('profiles').upsert({ id: data.user.id, name: form.name, email: form.email, role: 'pending', active: true })
-    }
-    setMode('login')
-    setForm(p => ({ ...p, password: '', confirm: '' }))
-    alert('Cuenta creada. El Director asignará tu rol para acceder al sistema.')
-    setLoading(false)
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
-      <div style={{ width: '100%', maxWidth: 420, padding: 16 }}>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 32, color: G, letterSpacing: '.1em' }}>The Wrist Room</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.25em', marginTop: 6 }}>TWR OPERATING SYSTEM</div>
-        </div>
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, padding: 28 }}>
-          <div style={{ display: 'flex', marginBottom: 24, borderBottom: `1px solid ${BR}` }}>
-            {[['login', 'Iniciar Sesión'], ['register', 'Crear Cuenta']].map(([id, label]) => (
-              <button key={id} onClick={() => setMode(id)}
-                style={{ flex: 1, padding: '9px 0', background: 'none', border: 'none', borderBottom: mode === id ? `2px solid ${G}` : '2px solid transparent', color: mode === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {mode === 'login' && (
-            <div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>Correo</label>
-                <input type="email" value={form.email} onChange={f('email')} placeholder="tu@correo.mx"
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
-              </div>
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>Contraseña</label>
-                <input type="password" value={form.password} onChange={f('password')} placeholder="••••••••"
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
-              </div>
-              {err && <div style={{ background: RED + '11', border: `1px solid ${RED}33`, borderRadius: 4, padding: '8px 12px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: RED, marginBottom: 14 }}>{err}</div>}
-              <Btn onClick={handleLogin} full disabled={loading || !form.email || !form.password}>{loading ? 'Verificando...' : 'Entrar'}</Btn>
-            </div>
-          )}
-
-          {mode === 'register' && (
-            <div>
-              {[['name', 'Nombre completo', 'text', 'Nombre Apellido'], ['email', 'Correo', 'email', 'tu@correo.mx']].map(([k, l, t, ph]) => (
-                <div key={k} style={{ marginBottom: 14 }}>
-                  <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>{l}</label>
-                  <input type={t} value={form[k]} onChange={f(k)} placeholder={ph}
-                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
-                </div>
-              ))}
-              <FR>
-                <Field label="Contraseña"><input type="password" value={form.password} onChange={f('password')} placeholder="Mín. 8 chars"
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} /></Field>
-                <Field label="Confirmar"><input type="password" value={form.confirm} onChange={f('confirm')} placeholder="Repetir"
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} /></Field>
-              </FR>
-              {err && <div style={{ background: RED + '11', border: `1px solid ${RED}33`, borderRadius: 4, padding: '8px 12px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: RED, marginBottom: 14 }}>{err}</div>}
-              <div style={{ background: S3, borderRadius: 4, padding: '8px 12px', marginBottom: 14, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
-                Tu cuenta quedará pendiente hasta que el Director asigne tu rol.
-              </div>
-              <Btn onClick={handleRegister} full disabled={loading || !form.email || !form.password || !form.name}>{loading ? 'Creando...' : 'Crear Cuenta'}</Btn>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  PENDING SCREEN
-// ══════════════════════════════════════════════════════════════════════════════
-function PendingScreen({ user, onLogout }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
-      <div style={{ textAlign: 'center', padding: 32 }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: G, marginBottom: 16 }}>The Wrist Room</div>
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, padding: 32, maxWidth: 420 }}>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: TM + '22', border: `1px solid ${TM}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 22 }}>⏳</div>
-          <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 16, color: TX, marginBottom: 8 }}>Cuenta pendiente de activación</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginBottom: 24, lineHeight: 1.6 }}>Tu cuenta fue creada. El Director del sistema asignará tu rol de acceso en breve.</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginBottom: 20 }}>{user.email}</div>
-          <Btn variant="secondary" onClick={onLogout} full>Cerrar Sesión</Btn>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ADMIN MODULE
-// ══════════════════════════════════════════════════════════════════════════════
-function AdminModule({ currentUser }) {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const loadUsers = useCallback(async () => {
-    setLoading(true)
-    const { data } = await sb.from('profiles').select('*').order('created_at', { ascending: false })
-    setUsers(data || [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { loadUsers() }, [loadUsers])
-
-  const saveRole = async (userId, role, active) => {
-    setSaving(true)
-    await sb.from('profiles').update({ role, active }).eq('id', userId)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, role, active } : x))
-    setEditing(null)
-    setSaving(false)
-  }
-
-  const pending = users.filter(u => u.role === 'pending').length
-  const filtered = users.filter(u => !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase()))
-
-  return (
-    <div>
-      <SH title="Administración" subtitle={`${users.length} usuarios registrados`} />
-
-      {pending > 0 && (
-        <div style={{ background: G + '11', border: `1px solid ${G}33`, borderRadius: 6, padding: '12px 16px', marginBottom: 18 }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>⚠ {pending} usuario{pending > 1 ? 's' : ''} pendiente{pending > 1 ? 's' : ''} de asignación de rol</span>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
-        <KPI label="Total Usuarios" value={users.length} accent={BLU} />
-        <KPI label="Pendientes" value={pending} accent={pending > 0 ? G : TM} />
-        <KPI label="Activos" value={users.filter(u => u.active && u.role !== 'pending').length} accent={GRN} />
-        <KPI label="Roles Asignados" value={users.filter(u => u.role !== 'pending').length} accent={TM} />
-      </div>
-
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <input placeholder="Buscar usuario..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 320, background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, outline: 'none' }} />
-        <button onClick={loadUsers} style={{ background: S2, border: `1px solid ${BR}`, color: TM, padding: '8px 16px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 10, cursor: 'pointer', letterSpacing: '.08em' }}>↻ ACTUALIZAR</button>
-      </div>
-
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${BR}` }}>
-              {['Nombre', 'Email', 'Rol', 'Estado', 'Registro', 'Acciones'].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando...</td></tr>
-            ) : filtered.map(u => (
-              <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
-                onMouseEnter={e => e.currentTarget.style.background = S2}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '12px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>
-                  {u.name || '—'}
-                  {u.id === currentUser.id && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: G, marginLeft: 6 }}>(tú)</span>}
-                </td>
-                <td style={{ padding: '12px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
-                <td style={{ padding: '12px 16px' }}><Badge label={ROLES[u.role]?.label || u.role} color={ROLES[u.role]?.color || TM} small /></td>
-                <td style={{ padding: '12px 16px' }}><Badge label={u.active ? 'Activo' : 'Inactivo'} color={u.active ? GRN : RED} small /></td>
-                <td style={{ padding: '12px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>{u.created_at ? new Date(u.created_at).toLocaleDateString('es-MX') : '—'}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  {u.id !== currentUser.id ? (
-                    <button onClick={() => setEditing({ ...u })} style={{ background: 'none', border: `1px solid ${BR}`, color: TM, padding: '4px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>EDITAR</button>
-                  ) : <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>—</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {editing && (
-        <Modal title={`Editar: ${editing.name || editing.email}`} onClose={() => setEditing(null)} width={480}>
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 4 }}>EMAIL</div>
-            <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{editing.email}</div>
-          </div>
-          <Divider label="ROL DE ACCESO" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-            {Object.entries(ROLES).filter(([k]) => k !== 'pending').map(([key, cfg]) => (
-              <div key={key} onClick={() => setEditing(e => ({ ...e, role: key }))}
-                style={{ background: editing.role === key ? cfg.color + '22' : S3, border: `1px solid ${editing.role === key ? cfg.color : BR}`, borderRadius: 6, padding: '12px 14px', cursor: 'pointer' }}>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: editing.role === key ? cfg.color : TM, letterSpacing: '.08em' }}>{cfg.label.toUpperCase()}</div>
-                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 11, color: TD, marginTop: 4 }}>
-                  {key === 'director' ? 'Acceso total' : key === 'operador' ? 'Operaciones diarias' : 'Solo cuenta propia'}
-                </div>
-              </div>
-            ))}
-          </div>
-          <Divider label="ESTADO" />
-          <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
-            {[['true', 'Activo', GRN], ['false', 'Inactivo', RED]].map(([val, label, color]) => (
-              <div key={val} onClick={() => setEditing(e => ({ ...e, active: val === 'true' }))}
-                style={{ flex: 1, background: String(editing.active) === val ? color + '22' : S3, border: `1px solid ${String(editing.active) === val ? color : BR}`, borderRadius: 6, padding: '10px 14px', cursor: 'pointer', textAlign: 'center' }}>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: String(editing.active) === val ? color : TM }}>{label}</span>
-              </div>
-            ))}
-          </div>
+      {/* ── MODAL MARCA ────────────────────────────────────────────────────── */}
+      {showBrandForm && (
+        <Modal title={editBrand ? `Editar · ${editBrand.name}` : 'Nueva Marca'} onClose={() => setShowBrandForm(false)}>
+          <FR>
+            <Field label="Nombre" required><input value={bf.name} onChange={e => setBf(f => ({ ...f, name: e.target.value }))} placeholder="Rolex, Patek Philippe..." style={inputStyle} /></Field>
+            <Field label="País"><input value={bf.country} onChange={e => setBf(f => ({ ...f, country: e.target.value }))} placeholder="Suiza" style={inputStyle} /></Field>
+          </FR>
+          <FR>
+            <Field label="Año fundación"><input type="number" value={bf.founded} onChange={e => setBf(f => ({ ...f, founded: e.target.value }))} placeholder="1905" style={inputStyle} /></Field>
+            <Field label="Notas"><input value={bf.notes} onChange={e => setBf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones..." style={inputStyle} /></Field>
+          </FR>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn variant="secondary" small onClick={() => setEditing(null)}>Cancelar</Btn>
-            <Btn small onClick={() => saveRole(editing.id, editing.role, editing.active)} disabled={saving}>{saving ? 'Guardando...' : 'Guardar Cambios'}</Btn>
+            <Btn variant="secondary" small onClick={() => setShowBrandForm(false)}>Cancelar</Btn>
+            <Btn small onClick={saveBrand} disabled={!bf.name || saving}>{saving ? 'Guardando...' : editBrand ? 'Guardar Cambios' : 'Crear Marca'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL MODELO ───────────────────────────────────────────────────── */}
+      {showModelForm && (
+        <Modal title={editModel ? `Editar · ${editModel.name}` : 'Nuevo Modelo'} onClose={() => setShowModelForm(false)}>
+          <FR>
+            <Field label="Marca" required>
+              <select value={mf.brandId} onChange={e => setMf(f => ({ ...f, brandId: e.target.value }))} style={inputStyle}>
+                <option value="">— Seleccionar —</option>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Nombre" required><input value={mf.name} onChange={e => setMf(f => ({ ...f, name: e.target.value }))} placeholder="Submariner, Daytona..." style={inputStyle} /></Field>
+          </FR>
+          <FR>
+            <Field label="Familia"><input value={mf.family} onChange={e => setMf(f => ({ ...f, family: e.target.value }))} placeholder="Deportivo, Clásico..." style={inputStyle} /></Field>
+            <Field label="Notas"><input value={mf.notes} onChange={e => setMf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones..." style={inputStyle} /></Field>
+          </FR>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" small onClick={() => setShowModelForm(false)}>Cancelar</Btn>
+            <Btn small onClick={saveModel} disabled={!mf.name || !mf.brandId || saving}>{saving ? 'Guardando...' : editModel ? 'Guardar Cambios' : 'Crear Modelo'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL REFERENCIA ───────────────────────────────────────────────── */}
+      {showRefForm && (
+        <Modal title={editRef ? `Editar · ${editRef.ref}` : 'Nueva Referencia'} onClose={() => setShowRefForm(false)}>
+          <FR>
+            <Field label="Modelo" required>
+              <select value={rf.modelId} onChange={e => setRf(f => ({ ...f, modelId: e.target.value }))} style={inputStyle}>
+                <option value="">— Seleccionar —</option>{models.map(m => { const b = brands.find(b => b.id === m.brandId); return <option key={m.id} value={m.id}>{b?.name} {m.name}</option> })}
+              </select>
+            </Field>
+            <Field label="Referencia" required><input value={rf.ref} onChange={e => setRf(f => ({ ...f, ref: e.target.value }))} placeholder="126610LN, 5711/1A..." style={inputStyle} /></Field>
+          </FR>
+          <FR>
+            <Field label="Calibre"><input value={rf.caliber} onChange={e => setRf(f => ({ ...f, caliber: e.target.value }))} placeholder="3235, Cal.5..." style={inputStyle} /></Field>
+            <Field label="Material">
+              <select value={rf.material} onChange={e => setRf(f => ({ ...f, material: e.target.value }))} style={inputStyle}>
+                {['Acero', 'Oro Amarillo', 'Oro Blanco', 'Oro Rosa', 'Bicolor', 'Platino', 'Titanio', 'Cerámica'].map(x => <option key={x}>{x}</option>)}
+              </select>
+            </Field>
+          </FR>
+          <FR>
+            <Field label="Bisel"><input value={rf.bezel} onChange={e => setRf(f => ({ ...f, bezel: e.target.value }))} placeholder="Cerachrom negro..." style={inputStyle} /></Field>
+            <Field label="Esfera"><input value={rf.dial} onChange={e => setRf(f => ({ ...f, dial: e.target.value }))} placeholder="Negra, Sunburst..." style={inputStyle} /></Field>
+          </FR>
+          <FR>
+            <Field label="Tamaño"><input value={rf.size} onChange={e => setRf(f => ({ ...f, size: e.target.value }))} placeholder="40mm" style={inputStyle} /></Field>
+            <Field label="Brazalete"><input value={rf.bracelet} onChange={e => setRf(f => ({ ...f, bracelet: e.target.value }))} placeholder="Oyster, Jubilee..." style={inputStyle} /></Field>
+          </FR>
+          <FR>
+            <Field label="Año aprox."><input type="number" value={rf.year} onChange={e => setRf(f => ({ ...f, year: e.target.value }))} placeholder="2023" style={inputStyle} /></Field>
+            <Field label="Notas"><input value={rf.notes} onChange={e => setRf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones..." style={inputStyle} /></Field>
+          </FR>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" small onClick={() => setShowRefForm(false)}>Cancelar</Btn>
+            <Btn small onClick={saveRef} disabled={!rf.ref || !rf.modelId || saving}>{saving ? 'Guardando...' : editRef ? 'Guardar Cambios' : 'Crear Referencia'}</Btn>
           </div>
         </Modal>
       )}
@@ -1886,6 +1754,7 @@ function InversionistasModule({ state, setState }) {
       socios: (s.socios || []).map(i => i.id !== sel.id ? i : { ...i, movimientos: [...(i.movimientos || []), nuevoMov] })
     }))
     await db.saveMovimientoSocio(nuevoMov)
+    toast('Movimiento registrado')
     setShowMov(false)
     setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
   }
@@ -1893,6 +1762,7 @@ function InversionistasModule({ state, setState }) {
   const saveEditSocios = async () => {
     setState(s => ({ ...s, socios: editSocios }))
     await Promise.all(editSocios.map(s => db.saveSocio(s)))
+    toast('Configuración de socios guardada')
     setShowEditSocios(false)
   }
 
@@ -2080,6 +1950,7 @@ function ContactosModule({ state, setState }) {
     const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
     setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
     await db.saveClient(client)
+    toast('Cliente guardado correctamente')
     setShowAddCliente(false)
     setCf({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
   }
@@ -2088,6 +1959,7 @@ function ContactosModule({ state, setState }) {
     const supplier = { ...pf, id: 'P' + uid(), rating: 3, totalDeals: 0 }
     setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
     await db.saveSupplier(supplier)
+    toast('Proveedor guardado correctamente')
     setShowAddProveedor(false)
     setPf({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '' })
   }
@@ -2461,6 +2333,7 @@ export default function App() {
         {/* Main content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}>{renderPage()}</div>
       </div>
+      <ToastContainer />
     </>
   )
 }
