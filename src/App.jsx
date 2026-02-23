@@ -10,9 +10,9 @@ const sb = createClient(
   {
     auth: {
       persistSession: true,
-      storageKey: 'twr-auth',
+      storageKey: 'twr-auth-v4',
       detectSessionInUrl: true,
-      lock: (name, acquireTimeout, fn) => fn()
+      lock: (_name, _acquireTimeout, fn) => fn()
     }
   }
 )
@@ -254,7 +254,7 @@ function AuthScreen({ onAuth }) {
     setErr(''); setLoading(true)
     const { data, error } = await sb.auth.signInWithPassword({ email: form.email, password: form.password })
     if (error) { setErr(error.message); setLoading(false); return }
-    const { data: profile } = await sb.from('profiles').select('*').eq('id', data.user.id).single()
+    const { data: profile } = await sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
     onAuth(data.user, profile)
     setLoading(false)
   }
@@ -1520,7 +1520,7 @@ export default function App() {
     // Check existing session
     sb.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
-        const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).single()
+        const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
       }
@@ -1530,7 +1530,7 @@ export default function App() {
     // Listen for auth changes
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).single()
+        const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
       } else if (event === 'SIGNED_OUT') {
