@@ -1692,16 +1692,33 @@ function InversionistasModule({ state, setState }) {
 // ══════════════════════════════════════════════════════════════════════════════
 //  CONTACTOS
 // ══════════════════════════════════════════════════════════════════════════════
-function ContactosModule({ state }) {
+function ContactosModule({ state, setState }) {
   const { suppliers, clients } = state
-  const [tab, setTab] = useState('clientes')
+  const [tab, setTab]           = useState('clientes')
+  const [showAddCliente, setShowAddCliente] = useState(false)
+  const [showAddProveedor, setShowAddProveedor] = useState(false)
+  const [cf, setCf] = useState({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
+  const [pf, setPf] = useState({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '' })
+  const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
   const Stars = n => '★'.repeat(n) + '☆'.repeat(5 - n)
+
+  const saveCliente = () => {
+    setState(s => ({ ...s, clients: [...(s.clients || []), { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }] }))
+    setShowAddCliente(false)
+    setCf({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
+  }
+
+  const saveProveedor = () => {
+    setState(s => ({ ...s, suppliers: [...(s.suppliers || []), { ...pf, id: 'P' + uid(), rating: 3, totalDeals: 0 }] }))
+    setShowAddProveedor(false)
+    setPf({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '' })
+  }
 
   return (
     <div>
       <SH title="Contactos" />
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: `1px solid ${BR}` }}>
-        {[['clientes', 'Clientes', clients.length], ['proveedores', 'Proveedores', suppliers.length]].map(([id, label, n]) => (
+        {[['clientes', 'Clientes', (clients||[]).length], ['proveedores', 'Proveedores', (suppliers||[]).length]].map(([id, label, n]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ padding: '10px 20px', background: 'none', border: 'none', borderBottom: tab === id ? `2px solid ${G}` : '2px solid transparent', color: tab === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
             {label} <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: tab === id ? G : TD, marginLeft: 4 }}>{n}</span>
@@ -1710,43 +1727,135 @@ function ContactosModule({ state }) {
       </div>
 
       {tab === 'clientes' && (
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Nombre', 'Tier', 'Ciudad', 'Teléfono', 'Compras', 'Facturado'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {clients.map(c => (
-                <tr key={c.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{c.name}</td>
-                  <td style={{ padding: '11px 14px' }}><Badge label={c.tier} color={({ VIP: G, Regular: BLU, Prospecto: TM })[c.tier] || TM} small /></td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{c.city}</td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{c.phone}</td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TX, textAlign: 'center' }}>{c.totalPurchases}</td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{c.totalSpent > 0 ? fmt(c.totalSpent) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={() => setShowAddCliente(true)}>+ Nuevo Cliente</Btn>
+          </div>
+          {(clients||[]).length === 0 ? (
+            <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
+              Sin clientes registrados · click "+ Nuevo Cliente" para agregar
+            </div>
+          ) : (
+            <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Nombre', 'Tier', 'Ciudad', 'Teléfono', 'Email', 'Compras', 'Facturado'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {(clients||[]).map(c => (
+                    <tr key={c.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{c.name}</td>
+                      <td style={{ padding: '11px 14px' }}><Badge label={c.tier} color={({ VIP: G, Regular: BLU, Prospecto: TM })[c.tier] || TM} small /></td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{c.city || '—'}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{c.phone || '—'}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{c.email || '—'}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TX, textAlign: 'center' }}>{c.totalPurchases || 0}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{c.totalSpent > 0 ? fmt(c.totalSpent) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {tab === 'proveedores' && (
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Nombre', 'Tipo', 'Ciudad', 'Teléfono', 'Operaciones', 'Rating'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {suppliers.map(s => (
-                <tr key={s.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{s.name}</td>
-                  <td style={{ padding: '11px 14px' }}><Badge label={s.type} color={BLU} small /></td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{s.city}</td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{s.phone}</td>
-                  <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G, textAlign: 'center' }}>{s.totalDeals}</td>
-                  <td style={{ padding: '11px 14px', color: G, fontSize: 13 }}>{Stars(s.rating)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={() => setShowAddProveedor(true)}>+ Nuevo Proveedor</Btn>
+          </div>
+          {(suppliers||[]).length === 0 ? (
+            <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
+              Sin proveedores registrados · click "+ Nuevo Proveedor" para agregar
+            </div>
+          ) : (
+            <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Nombre', 'Tipo', 'Ciudad', 'Teléfono', 'Email', 'Operaciones', 'Rating'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {(suppliers||[]).map(s => (
+                    <tr key={s.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{s.name}</td>
+                      <td style={{ padding: '11px 14px' }}><Badge label={s.type} color={BLU} small /></td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{s.city || '—'}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{s.phone || '—'}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{s.email || '—'}</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G, textAlign: 'center' }}>{s.totalDeals || 0}</td>
+                      <td style={{ padding: '11px 14px', color: G, fontSize: 13 }}>{Stars(s.rating || 3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* FORM NUEVO CLIENTE */}
+      {showAddCliente && (
+        <Modal title="Nuevo Cliente" onClose={() => setShowAddCliente(false)} width={500}>
+          <FR>
+            <Field label="Nombre completo" required>
+              <input value={cf.name} onChange={e => setCf(f => ({ ...f, name: e.target.value }))} placeholder="Ej. García, Roberto" style={inputStyle} />
+            </Field>
+            <Field label="Tier">
+              <select value={cf.tier} onChange={e => setCf(f => ({ ...f, tier: e.target.value }))} style={inputStyle}>
+                {['Prospecto', 'Regular', 'VIP'].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </Field>
+          </FR>
+          <FR>
+            <Field label="Teléfono">
+              <input value={cf.phone} onChange={e => setCf(f => ({ ...f, phone: e.target.value }))} placeholder="+52 55 0000 0000" style={inputStyle} />
+            </Field>
+            <Field label="Email">
+              <input value={cf.email} onChange={e => setCf(f => ({ ...f, email: e.target.value }))} placeholder="correo@ejemplo.com" style={inputStyle} />
+            </Field>
+          </FR>
+          <Field label="Ciudad">
+            <input value={cf.city} onChange={e => setCf(f => ({ ...f, city: e.target.value }))} placeholder="CDMX, Monterrey..." style={inputStyle} />
+          </Field>
+          <Field label="Notas">
+            <textarea rows={2} value={cf.notes} onChange={e => setCf(f => ({ ...f, notes: e.target.value }))} placeholder="Preferencias, observaciones..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
+          </Field>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => setShowAddCliente(false)}>Cancelar</Btn>
+            <Btn small onClick={saveCliente} disabled={!cf.name}>Guardar Cliente</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* FORM NUEVO PROVEEDOR */}
+      {showAddProveedor && (
+        <Modal title="Nuevo Proveedor" onClose={() => setShowAddProveedor(false)} width={500}>
+          <FR>
+            <Field label="Nombre" required>
+              <input value={pf.name} onChange={e => setPf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre o razón social" style={inputStyle} />
+            </Field>
+            <Field label="Tipo">
+              <select value={pf.type} onChange={e => setPf(f => ({ ...f, type: e.target.value }))} style={inputStyle}>
+                {['Particular', 'Coleccionista', 'Dealer', 'Casa de Empeño', 'Subasta', 'Otro'].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </Field>
+          </FR>
+          <FR>
+            <Field label="Teléfono">
+              <input value={pf.phone} onChange={e => setPf(f => ({ ...f, phone: e.target.value }))} placeholder="+52 55 0000 0000" style={inputStyle} />
+            </Field>
+            <Field label="Email">
+              <input value={pf.email} onChange={e => setPf(f => ({ ...f, email: e.target.value }))} placeholder="correo@ejemplo.com" style={inputStyle} />
+            </Field>
+          </FR>
+          <Field label="Ciudad">
+            <input value={pf.city} onChange={e => setPf(f => ({ ...f, city: e.target.value }))} placeholder="CDMX, Monterrey..." style={inputStyle} />
+          </Field>
+          <Field label="Notas">
+            <textarea rows={2} value={pf.notes} onChange={e => setPf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones, condiciones..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
+          </Field>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => setShowAddProveedor(false)}>Cancelar</Btn>
+            <Btn small onClick={saveProveedor} disabled={!pf.name}>Guardar Proveedor</Btn>
+          </div>
+        </Modal>
       )}
     </div>
   )
@@ -1831,7 +1940,7 @@ export default function App() {
       case 'inventario':     return <InventarioModule {...s} />
       case 'ventas':         return <VentasModule {...s} />
       case 'inversionistas': return <InversionistasModule {...s} />
-      case 'contactos':      return <ContactosModule state={appState} />
+      case 'contactos':      return <ContactosModule state={appState} setState={setAppState} />
       case 'catalogos':      return <CatalogosModule {...s} />
       case 'reportes':       return <ReportesModule state={appState} />
       case 'admin':          return <AdminModule currentUser={authUser} />
