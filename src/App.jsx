@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -346,7 +346,7 @@ function InlineSelect({ value, onChange, options, placeholder, createLabel, crea
 //  TOAST NOTIFICATIONS
 // ══════════════════════════════════════════════════════════════════════════════
 let _toastFn = null
-export const toast = (msg, type = 'success') => _toastFn && _toastFn(msg, type)
+const toast = (msg, type = 'success') => _toastFn && _toastFn(msg, type)
 
 function ToastContainer() {
   const [toasts, setToasts] = useState([])
@@ -392,6 +392,125 @@ function Badge({ label, color, small }) {
     <span style={{ background: color + '22', color, border: `1px solid ${color}44`, borderRadius: 3, padding: small ? '1px 7px' : '2px 9px', fontSize: small ? 9 : 10, fontFamily: "'DM Mono', monospace", letterSpacing: '.07em', whiteSpace: 'nowrap' }}>
       {label}
     </span>
+  )
+}
+
+// ── UI PRIMITIVES ────────────────────────────────────────────────────────────
+
+// Modal overlay
+function Modal({ title, onClose, width = 520, children }) {
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+         onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'#1A1A1A', border:'1px solid #2A2A2A', borderRadius:8, width:'100%', maxWidth:width,
+                    maxHeight:'90vh', overflowY:'auto', animation:'fi .2s ease' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderBottom:'1px solid #2A2A2A' }}>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color: G }}>{title}</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color: TD, fontSize:20, cursor:'pointer', lineHeight:1 }}>×</button>
+        </div>
+        <div style={{ padding:24 }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// Button with variants: primary (default), secondary, ghost
+function Btn({ children, onClick, disabled, variant = 'primary', small, style: extraStyle }) {
+  const base = {
+    border: 'none', borderRadius: 4, cursor: disabled ? 'not-allowed' : 'pointer',
+    fontFamily: "'DM Mono',monospace", fontSize: small ? 10 : 11, letterSpacing: '.15em',
+    padding: small ? '7px 14px' : '10px 20px', transition: 'opacity .2s', opacity: disabled ? .45 : 1,
+    ...extraStyle
+  }
+  const variants = {
+    primary:   { background: G,             color: '#111' },
+    secondary: { background: 'transparent', color: TD,  border: '1px solid #2A2A2A' },
+    ghost:     { background: 'transparent', color: G,   border: `1px solid ${G}44` },
+  }
+  return (
+    <button onClick={disabled ? undefined : onClick} style={{ ...base, ...variants[variant] }}
+      onMouseOver={e => { if (!disabled) e.currentTarget.style.opacity = '.75' }}
+      onMouseOut={e => { e.currentTarget.style.opacity = disabled ? '.45' : '1' }}>
+      {children}
+    </button>
+  )
+}
+
+// Field wrapper: label + input/children
+function Field({ label, children, style: extraStyle }) {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:6, flex:1, ...extraStyle }}>
+      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.2em' }}>{label}</div>
+      {children}
+    </div>
+  )
+}
+
+// Form Row — flex row with gap
+function FR({ children, gap = 12 }) {
+  return <div style={{ display:'flex', gap, marginBottom:14, flexWrap:'wrap' }}>{children}</div>
+}
+
+// Info row for detail panels
+function InfoRow({ label, value, color }) {
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'1px solid #222' }}>
+      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.15em' }}>{label}</span>
+      <span style={{ fontFamily:"'Jost',sans-serif", fontSize:13, color: color || '#C0B090' }}>{value}</span>
+    </div>
+  )
+}
+
+// Section divider with label
+function Divider({ label }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10, margin:'16px 0 8px' }}>
+      <div style={{ flex:1, height:1, background:'#2A2A2A' }} />
+      {label && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color: TD, letterSpacing:'.25em' }}>{label}</div>}
+      <div style={{ flex:1, height:1, background:'#2A2A2A' }} />
+    </div>
+  )
+}
+
+// Error boundary — aísla crashes de módulos individuales
+class PageBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(e) { return { error: e } }
+  componentDidCatch(e, info) { console.error('PageBoundary caught:', e, info) }
+  render() {
+    if (this.state.error) return (
+      <div style={{ padding:40, textAlign:'center' }}>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color: RED, marginBottom:16 }}>ERROR EN MÓDULO</div>
+        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:13, color: TD, marginBottom:24 }}>{this.state.error.message}</div>
+        <button onClick={() => this.setState({ error: null })}
+          style={{ padding:'8px 20px', background:'transparent', border:`1px solid ${G}`, color: G,
+                   fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer', borderRadius:4 }}>
+          REINTENTAR
+        </button>
+      </div>
+    )
+    return this.props.children
+  }
+}
+
+// Section Header — usado en todos los módulos
+function SH({ title, subtitle, action, onAction }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24, paddingBottom:16, borderBottom:`1px solid #2A2A2A` }}>
+      <div>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color: G, lineHeight:1.2 }}>{title}</div>
+        {subtitle && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.2em', marginTop:4 }}>{subtitle}</div>}
+      </div>
+      {action && (
+        <button onClick={onAction}
+          style={{ padding:'8px 18px', background: G, border:'none', borderRadius:4, color:'#111',
+                   fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer',
+                   transition:'opacity .2s', whiteSpace:'nowrap' }}
+          onMouseOver={e=>e.target.style.opacity='.8'} onMouseOut={e=>e.target.style.opacity='1'}>
+          {action}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -2112,6 +2231,167 @@ function ContactosModule({ state, setState }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  ADMIN MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+// ── AUTH SCREEN ─────────────────────────────────────────────────────────────
+function AuthScreen({ onAuth }) {
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+  const [mode, setMode]         = useState('login') // 'login' | 'register'
+  const [error, setError]       = useState('')
+  const [loading, setLoading]   = useState(false)
+
+  const handle = async () => {
+    setError(''); setLoading(true)
+    try {
+      let result
+      if (mode === 'login') {
+        result = await sb.auth.signInWithPassword({ email, password })
+      } else {
+        result = await sb.auth.signUp({ email, password })
+      }
+      if (result.error) { setError(result.error.message); setLoading(false); return }
+      if (mode === 'register') {
+        setError(''); setMode('login')
+        alert('Cuenta creada. Espera aprobación del Director antes de acceder.')
+        setLoading(false); return
+      }
+      const user = result.data?.user || result.data?.session?.user
+      if (user) {
+        const { data: p } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle()
+        onAuth(user, p)
+      }
+    } catch (e) { setError(e.message) }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background: BG }}>
+      <div style={{ animation:'fi .5s ease', width:360, padding:40, background:'#1A1A1A', border:'1px solid #2A2A2A', borderRadius:8 }}>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:28, color: G, textAlign:'center', marginBottom:4 }}>The Wrist Room</div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.3em', textAlign:'center', marginBottom:32 }}>SISTEMA OPERATIVO</div>
+
+        <div style={{ display:'flex', marginBottom:24, background:'#111', borderRadius:4, padding:3 }}>
+          {['login','register'].map(m => (
+            <button key={m} onClick={() => { setMode(m); setError('') }}
+              style={{ flex:1, padding:'8px 0', background: mode===m ? '#2A2A2A' : 'transparent', border:'none', color: mode===m ? G : TD,
+                       fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer', borderRadius:3, transition:'all .2s' }}>
+              {m === 'login' ? 'ACCEDER' : 'REGISTRAR'}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.2em', marginBottom:6 }}>CORREO</div>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handle()} placeholder="usuario@thewristroom.com" />
+        </div>
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.2em', marginBottom:6 }}>CONTRASEÑA</div>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handle()} placeholder="••••••••" />
+        </div>
+
+        {error && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:'#E05A5A', marginBottom:16, textAlign:'center' }}>{error}</div>}
+
+        <button onClick={handle} disabled={loading || !email || !password}
+          style={{ width:'100%', padding:'12px 0', background: loading ? '#2A2A2A' : G, border:'none', borderRadius:4,
+                   color:'#111', fontFamily:"'DM Mono',monospace", fontSize:11, letterSpacing:'.2em',
+                   cursor: loading || !email || !password ? 'not-allowed' : 'pointer', opacity: loading ? .6 : 1, transition:'all .2s' }}>
+          {loading ? 'PROCESANDO...' : mode === 'login' ? 'ACCEDER AL SISTEMA' : 'CREAR CUENTA'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── PENDING SCREEN ──────────────────────────────────────────────────────────
+function PendingScreen({ user, onLogout }) {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background: BG }}>
+      <div style={{ animation:'fi .5s ease', width:400, padding:40, background:'#1A1A1A', border:'1px solid #2A2A2A', borderRadius:8, textAlign:'center' }}>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:28, color: G, marginBottom:4 }}>The Wrist Room</div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.3em', marginBottom:32 }}>ACCESO PENDIENTE</div>
+        <div style={{ width:48, height:48, borderRadius:'50%', background:'#2A2A2A', display:'flex', alignItems:'center', justifyContent:'center',
+                      margin:'0 auto 24px', fontSize:22 }}>⏳</div>
+        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:14, color:'#C0B090', marginBottom:12, lineHeight:1.6 }}>
+          Tu cuenta ha sido creada exitosamente.
+        </div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color: TD, marginBottom:8 }}>{user?.email}</div>
+        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:13, color: TD, marginBottom:32, lineHeight:1.6 }}>
+          Un Director debe asignarte un rol antes de que puedas acceder al sistema.
+        </div>
+        <button onClick={onLogout}
+          style={{ padding:'10px 24px', background:'transparent', border:'1px solid #2A2A2A', borderRadius:4,
+                   color: TD, fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer' }}>
+          CERRAR SESIÓN
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AdminModule({ currentUser }) {
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    sb.from('profiles').select('*').order('created_at').then(({ data }) => {
+      setUsers(data || [])
+      setLoading(false)
+    })
+  }, [])
+
+  const setRole = async (userId, role) => {
+    await sb.from('profiles').update({ role }).eq('id', userId)
+    setUsers(u => u.map(x => x.id !== userId ? x : { ...x, role }))
+    toast(`Rol actualizado a "${role}"`)
+  }
+
+  const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '6px 10px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 12, outline: 'none' }
+
+  return (
+    <div>
+      <SH title="Administración" subtitle="Gestión de usuarios y accesos" />
+      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+            {['Nombre', 'Email', 'Rol', 'Estado', ''].map(h =>
+              <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+            )}
+          </tr></thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando...</td></tr>
+            ) : users.map(u => (
+              <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
+                onMouseEnter={e => e.currentTarget.style.background = S2}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <td style={{ padding: '11px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{u.name || '—'}</td>
+                <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
+                <td style={{ padding: '11px 16px' }}>
+                  <select value={u.role} onChange={e => setRole(u.id, e.target.value)}
+                    style={{ ...inputStyle, width: 'auto' }}
+                    disabled={u.id === currentUser?.id}>
+                    {['director', 'operador', 'inversionista', 'pending'].map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: '11px 16px' }}>
+                  <Badge label={u.active ? 'Activo' : 'Inactivo'} color={u.active ? GRN : TM} small />
+                </td>
+                <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>
+                  {u.id === currentUser?.id ? 'tú' : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  ROOT APP
 // ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -2331,7 +2611,7 @@ export default function App() {
           </div>
         </div>
         {/* Main content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}>{renderPage()}</div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}><PageBoundary key={page}>{renderPage()}</PageBoundary></div>
       </div>
       <ToastContainer />
     </>
