@@ -563,14 +563,82 @@ function WatchCard({ watch, refs, models, brands, onClick }) {
 // ══════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Mini SVG bar chart ────────────────────────────────────────────────────────
+function MiniBarChart({ data, height = 80, color = G }) {
+  const max = Math.max(...data.map(d => d.value), 1)
+  const w = 100 / data.length
+  return (
+    <svg viewBox={`0 0 100 ${height}`} style={{ width: '100%', height }} preserveAspectRatio="none">
+      {data.map((d, i) => {
+        const barH = (d.value / max) * (height - 16)
+        const x = i * w + w * 0.15
+        const barW = w * 0.7
+        return (
+          <g key={i}>
+            <rect x={x} y={height - 16 - barH} width={barW} height={barH} fill={color} opacity={0.85} rx="1" />
+            <text x={x + barW / 2} y={height - 2} textAnchor="middle" fontSize="6" fill="#6B6B6B" fontFamily="DM Mono">{d.label}</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+// ── Donut chart SVG ───────────────────────────────────────────────────────────
+function DonutChart({ slices, size = 120 }) {
+  const r = 40, cx = 60, cy = 60
+  const circ = 2 * Math.PI * r
+  let offset = 0
+  const total = slices.reduce((a, s) => a + s.value, 0) || 1
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1A1A1A" strokeWidth="16" />
+      {slices.map((s, i) => {
+        const pct = s.value / total
+        const dash = pct * circ
+        const el = (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="16"
+            strokeDasharray={`${dash} ${circ - dash}`} strokeDashoffset={-offset}
+            style={{ transform: 'rotate(-90deg)', transformOrigin: '60px 60px' }} />
+        )
+        offset += dash
+        return el
+      })}
+      <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="#E8E2D5" fontFamily="DM Mono">{total}</text>
+      <text x={cx} y={cy + 10} textAnchor="middle" fontSize="7" fill="#6B6B6B" fontFamily="DM Mono">PIEZAS</text>
+    </svg>
+  )
+}
+
 function DashboardModule({ state }) {
-  const { watches, sales, investors, brands, models, refs } = state
+  const { watches, sales, investors, brands, models, refs, clients } = state
   const inv     = watches.filter(w => w.stage === 'inventario')
   const opp     = watches.filter(w => w.stage === 'oportunidad')
   const sold    = watches.filter(w => w.stage === 'liquidado')
   const capital = investors.reduce((a, i) => a + i.capitalAportado, 0)
   const utilidad = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
   const porCobrar = sales.filter(s => s.status !== 'Liquidado').reduce((a, s) => { const c = (s.payments || []).reduce((x, p) => x + p.amount, 0); return a + (s.agreedPrice - c) }, 0)
+  const valorInventario = inv.reduce((a, w) => a + (w.cost || 0), 0)
+
+  // Monthly sales data for bar chart (last 6 months)
+  const now = new Date()
+  const monthlyData = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
+    const label = d.toLocaleDateString('es-MX', { month: 'short' }).toUpperCase().slice(0, 3)
+    const value = sales.filter(s => {
+      const sd = new Date(s.date)
+      return sd.getFullYear() === d.getFullYear() && sd.getMonth() === d.getMonth()
+    }).reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
+    return { label, value: Math.max(value, 0) }
+  })
+
+  // Brand distribution in inventory
+  const brandDist = brands.map((b, i) => {
+    const bModels = models.filter(m => m.brandId === b.id).map(m => m.id)
+    const bRefs = refs.filter(r => bModels.includes(r.modelId)).map(r => r.id)
+    const count = inv.filter(w => bRefs.includes(w.refId)).length
+    return { name: b.name, value: count, color: [G, BLU, GRN, PRP, RED, '#E8A040'][i % 6] }
+  }).filter(b => b.value > 0)
 
   const alertas = [
     ...watches.filter(w => w.stage === 'inventario' && dias(w.entryDate) > 60).map(w => {
@@ -587,25 +655,90 @@ function DashboardModule({ state }) {
     }),
   ]
 
+  const card = { background: S1, border: `1px solid ${BR}`, borderRadius: 6 }
+  const cardHdr = { padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }
+
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 30, color: TX, fontWeight: 300 }}>The Wrist Room</div>
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginTop: 3, letterSpacing: '.08em' }}>{new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}</div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
-        <KPI label="Capital Total"   value={fmt(capital)}   sub={`${investors.length} socios`} />
-        <KPI label="Piezas Activas"  value={inv.length}     sub={fmt(inv.reduce((a, w) => a + (w.cost || 0), 0))} accent={GRN} />
-        <KPI label="Por Cobrar"      value={fmt(porCobrar)} accent={porCobrar > 0 ? RED : GRN} />
-        <KPI label="Utilidad Bruta"  value={fmt(utilidad)}  sub={`${sold.length} relojes vendidos`} accent={BLU} />
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
+        <KPI label="Capital Total"      value={fmt(capital)}          sub={`${investors.length} socios`} />
+        <KPI label="Valor Inventario"   value={fmt(valorInventario)}  sub={`${inv.length} piezas activas`} accent={GRN} />
+        <KPI label="Por Cobrar"         value={fmt(porCobrar)}        accent={porCobrar > 0 ? RED : GRN} sub={porCobrar > 0 ? 'Pendiente de pago' : 'Sin saldos pendientes'} />
+        <KPI label="Utilidad Acumulada" value={fmt(utilidad)}         sub={`${sold.length} relojes vendidos`} accent={BLU} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+      {/* Row 1: Graficas + Pipeline */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+
+        {/* Utilidad mensual bar chart */}
+        <div style={card}>
+          <div style={cardHdr}>UTILIDAD · ÚLTIMOS 6 MESES</div>
+          <div style={{ padding: '14px 16px 8px' }}>
+            <MiniBarChart data={monthlyData} height={90} color={G} />
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 4, textAlign: 'right' }}>
+              Total: {fmt(monthlyData.reduce((a, d) => a + d.value, 0))}
+            </div>
+          </div>
+        </div>
+
+        {/* Pipeline donut + stats */}
+        <div style={card}>
+          <div style={cardHdr}>PIPELINE</div>
+          <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 16 }}>
+            <DonutChart size={110} slices={[
+              { value: opp.length,  color: PRP },
+              { value: inv.length,  color: GRN },
+              { value: sold.length, color: TM  },
+            ]} />
+            <div style={{ flex: 1 }}>
+              {[[opp.length, 'Oportunidades', PRP], [inv.length, 'Inventario', GRN], [sold.length, 'Vendidos', TM]].map(([n, l, c]) => (
+                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.1em' }}>{l}</span>
+                  </div>
+                  <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: c }}>{n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Capital por socio */}
+        <div style={card}>
+          <div style={cardHdr}>CAPITAL POR SOCIO</div>
+          <div style={{ padding: 14 }}>
+            {investors.length === 0
+              ? <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, textAlign: 'center', paddingTop: 20 }}>Sin socios registrados</div>
+              : investors.map((inv, i) => (
+                <div key={inv.id} style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{inv.name.split(',')[0]}</span>
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{inv.participacion}%</span>
+                  </div>
+                  <div style={{ background: S3, borderRadius: 2, height: 4, borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ background: [G, BLU, GRN, PRP][i % 4], height: '100%', width: `${inv.participacion}%`, transition: 'width .5s ease' }} />
+                  </div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 3 }}>{fmt(inv.capitalAportado)}</div>
+                </div>
+              ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: Alertas + Distribución marcas + Clientes recientes */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
         <div>
           {alertas.length > 0 && (
-            <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, marginBottom: 16 }}>
-              <div style={{ padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>ALERTAS · {alertas.length}</div>
+            <div style={{ ...card, marginBottom: 14 }}>
+              <div style={cardHdr}>ALERTAS · {alertas.length}</div>
               {alertas.map((a, i) => (
                 <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 18px', borderBottom: i < alertas.length - 1 ? `1px solid ${BR}` : 'none' }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: a.type === 'danger' ? RED : a.type === 'warning' ? G : BLU, flexShrink: 0 }} />
@@ -614,30 +747,43 @@ function DashboardModule({ state }) {
               ))}
             </div>
           )}
-          <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6 }}>
-            <div style={{ padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>PIPELINE</div>
-            <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, textAlign: 'center' }}>
-              {[[opp.length, 'Oportunidades', PRP], [inv.length, 'En Inventario', GRN], [sold.length, 'Vendidos', TM]].map(([n, l, c]) => (
-                <div key={l}>
-                  <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: c }}>{n}</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginTop: 3 }}>{l}</div>
-                </div>
-              ))}
+          {/* Brand bar chart */}
+          <div style={card}>
+            <div style={cardHdr}>INVENTARIO POR MARCA</div>
+            <div style={{ padding: '10px 18px' }}>
+              {brandDist.length === 0
+                ? <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, padding: '10px 0' }}>Sin piezas en inventario</div>
+                : brandDist.map(b => (
+                  <div key={b.name} style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{b.name}</span>
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: b.color }}>{b.value} pza{b.value !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div style={{ background: S3, borderRadius: 2, height: 3 }}>
+                      <div style={{ background: b.color, height: '100%', width: `${(b.value / Math.max(...brandDist.map(x => x.value))) * 100}%`, borderRadius: 2, opacity: .85 }} />
+                    </div>
+                  </div>
+                ))
+              }
             </div>
           </div>
         </div>
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16 }}>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', marginBottom: 14 }}>SOCIOS</div>
-          {investors.map(inv => (
-            <div key={inv.id} style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{inv.name.split(',')[0]}</span>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{inv.participacion}%</span>
+
+        {/* Clientes recientes */}
+        <div style={card}>
+          <div style={cardHdr}>CLIENTES RECIENTES</div>
+          {(clients || []).length === 0
+            ? <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, padding: 18 }}>Sin clientes registrados</div>
+            : (clients || []).slice(-8).reverse().map(c => (
+              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 16px', borderBottom: `1px solid ${BR}` }}>
+                <div>
+                  <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{c.name}</div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 1 }}>{c.city || '—'}</div>
+                </div>
+                <Badge label={c.tier} color={({ VIP: G, Regular: BLU, Prospecto: TM })[c.tier] || TM} small />
               </div>
-              <div style={{ background: S3, borderRadius: 2, height: 3 }}><div style={{ background: G, height: 3, width: `${inv.participacion}%` }} /></div>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 2 }}>{fmt(inv.capitalAportado)}</div>
-            </div>
-          ))}
+            ))
+          }
         </div>
       </div>
     </div>
@@ -2057,48 +2203,92 @@ function InversionistasModule({ state, setState }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function ContactosModule({ state, setState }) {
   const { suppliers, clients } = state
-  const [tab, setTab]           = useState('clientes')
-  const [showAddCliente, setShowAddCliente] = useState(false)
-  const [showAddProveedor, setShowAddProveedor] = useState(false)
+  const [tab, setTab]                     = useState('clientes')
+  const [showClienteForm, setShowClienteForm]   = useState(false)
+  const [showProveedorForm, setShowProveedorForm] = useState(false)
+  const [editCliente, setEditCliente]       = useState(null)
+  const [editProveedor, setEditProveedor]   = useState(null)
   const [cf, setCf] = useState({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
-  const [pf, setPf] = useState({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '' })
+  const [pf, setPf] = useState({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '', rating: 3 })
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
   const Stars = n => '★'.repeat(n) + '☆'.repeat(5 - n)
 
+  const openAddCliente  = () => { setEditCliente(null); setCf({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' }); setShowClienteForm(true) }
+  const openEditCliente = (c) => { setEditCliente(c); setCf({ name: c.name, phone: c.phone || '', email: c.email || '', city: c.city || '', tier: c.tier || 'Prospecto', notes: c.notes || '' }); setShowClienteForm(true) }
+  const openAddProveedor  = () => { setEditProveedor(null); setPf({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '', rating: 3 }); setShowProveedorForm(true) }
+  const openEditProveedor = (p) => { setEditProveedor(p); setPf({ name: p.name, type: p.type || 'Particular', phone: p.phone || '', email: p.email || '', city: p.city || '', notes: p.notes || '', rating: p.rating || 3 }); setShowProveedorForm(true) }
+
   const saveCliente = async () => {
-    const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
-    setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
-    await db.saveClient(client)
-    toast('Cliente guardado correctamente')
-    setShowAddCliente(false)
-    setCf({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
+    if (editCliente) {
+      const updated = { ...editCliente, ...cf }
+      setState(s => ({ ...s, clients: s.clients.map(x => x.id === editCliente.id ? updated : x) }))
+      await db.saveClient(updated)
+      toast('Cliente actualizado correctamente')
+    } else {
+      const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
+      setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
+      await db.saveClient(client)
+      toast('Cliente guardado correctamente')
+    }
+    setShowClienteForm(false)
+  }
+
+  const delCliente = async (c) => {
+    if (!window.confirm(`¿Eliminar cliente "${c.name}"?`)) return
+    setState(s => ({ ...s, clients: s.clients.filter(x => x.id !== c.id) }))
+    await sb.from('clients').delete().eq('id', c.id)
+    toast('Cliente eliminado', 'info')
   }
 
   const saveProveedor = async () => {
-    const supplier = { ...pf, id: 'P' + uid(), rating: 3, totalDeals: 0 }
-    setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
-    await db.saveSupplier(supplier)
-    toast('Proveedor guardado correctamente')
-    setShowAddProveedor(false)
-    setPf({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '' })
+    if (editProveedor) {
+      const updated = { ...editProveedor, ...pf, rating: +pf.rating }
+      setState(s => ({ ...s, suppliers: s.suppliers.map(x => x.id === editProveedor.id ? updated : x) }))
+      await db.saveSupplier(updated)
+      toast('Proveedor actualizado correctamente')
+    } else {
+      const supplier = { ...pf, id: 'P' + uid(), rating: +pf.rating, totalDeals: 0 }
+      setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
+      await db.saveSupplier(supplier)
+      toast('Proveedor guardado correctamente')
+    }
+    setShowProveedorForm(false)
   }
+
+  const delProveedor = async (p) => {
+    if (!window.confirm(`¿Eliminar proveedor "${p.name}"?`)) return
+    setState(s => ({ ...s, suppliers: s.suppliers.filter(x => x.id !== p.id) }))
+    await sb.from('suppliers').delete().eq('id', p.id)
+    toast('Proveedor eliminado', 'info')
+  }
+
+  const actionBtn = (color = TM) => ({
+    background: 'none', border: 'none', color, cursor: 'pointer',
+    fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px'
+  })
+
+  const tabBtn = (id) => ({
+    padding: '10px 20px', background: 'none', border: 'none',
+    borderBottom: tab === id ? `2px solid ${G}` : '2px solid transparent',
+    color: tab === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em'
+  })
 
   return (
     <div>
-      <SH title="Contactos" />
+      <SH title="Contactos" subtitle={`${(clients||[]).length} clientes · ${(suppliers||[]).length} proveedores`} />
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: `1px solid ${BR}` }}>
         {[['clientes', 'Clientes', (clients||[]).length], ['proveedores', 'Proveedores', (suppliers||[]).length]].map(([id, label, n]) => (
-          <button key={id} onClick={() => setTab(id)}
-            style={{ padding: '10px 20px', background: 'none', border: 'none', borderBottom: tab === id ? `2px solid ${G}` : '2px solid transparent', color: tab === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
+          <button key={id} onClick={() => setTab(id)} style={tabBtn(id)}>
             {label} <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: tab === id ? G : TD, marginLeft: 4 }}>{n}</span>
           </button>
         ))}
       </div>
 
+      {/* ── CLIENTES ──────────────────────────────────────────────────────── */}
       {tab === 'clientes' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-            <Btn onClick={() => setShowAddCliente(true)}>+ Nuevo Cliente</Btn>
+            <Btn onClick={openAddCliente}>+ Nuevo Cliente</Btn>
           </div>
           {(clients||[]).length === 0 ? (
             <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
@@ -2107,10 +2297,16 @@ function ContactosModule({ state, setState }) {
           ) : (
             <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Nombre', 'Tier', 'Ciudad', 'Teléfono', 'Email', 'Compras', 'Facturado'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+                  {['Nombre', 'Tier', 'Ciudad', 'Teléfono', 'Email', 'Compras', 'Facturado', ''].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+                  ))}
+                </tr></thead>
                 <tbody>
                   {(clients||[]).map(c => (
-                    <tr key={c.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <tr key={c.id} style={{ borderBottom: `1px solid ${BR}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = S2}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{c.name}</td>
                       <td style={{ padding: '11px 14px' }}><Badge label={c.tier} color={({ VIP: G, Regular: BLU, Prospecto: TM })[c.tier] || TM} small /></td>
                       <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{c.city || '—'}</td>
@@ -2118,6 +2314,10 @@ function ContactosModule({ state, setState }) {
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{c.email || '—'}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TX, textAlign: 'center' }}>{c.totalPurchases || 0}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{c.totalSpent > 0 ? fmt(c.totalSpent) : '—'}</td>
+                      <td style={{ padding: '11px 14px', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => openEditCliente(c)} style={actionBtn(TM)}>EDITAR</button>
+                        <button onClick={() => delCliente(c)} style={actionBtn(RED)}>✕</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2127,10 +2327,11 @@ function ContactosModule({ state, setState }) {
         </div>
       )}
 
+      {/* ── PROVEEDORES ───────────────────────────────────────────────────── */}
       {tab === 'proveedores' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-            <Btn onClick={() => setShowAddProveedor(true)}>+ Nuevo Proveedor</Btn>
+            <Btn onClick={openAddProveedor}>+ Nuevo Proveedor</Btn>
           </div>
           {(suppliers||[]).length === 0 ? (
             <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>
@@ -2139,17 +2340,27 @@ function ContactosModule({ state, setState }) {
           ) : (
             <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Nombre', 'Tipo', 'Ciudad', 'Teléfono', 'Email', 'Operaciones', 'Rating'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+                  {['Nombre', 'Tipo', 'Ciudad', 'Teléfono', 'Email', 'Operaciones', 'Rating', ''].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+                  ))}
+                </tr></thead>
                 <tbody>
                   {(suppliers||[]).map(s => (
-                    <tr key={s.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <tr key={s.id} style={{ borderBottom: `1px solid ${BR}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = S2}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{s.name}</td>
                       <td style={{ padding: '11px 14px' }}><Badge label={s.type} color={BLU} small /></td>
                       <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{s.city || '—'}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{s.phone || '—'}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{s.email || '—'}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G, textAlign: 'center' }}>{s.totalDeals || 0}</td>
-                      <td style={{ padding: '11px 14px', color: G, fontSize: 13 }}>{Stars(s.rating || 3)}</td>
+                      <td style={{ padding: '11px 14px', color: G, fontSize: 12 }}>{Stars(s.rating || 3)}</td>
+                      <td style={{ padding: '11px 14px', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => openEditProveedor(s)} style={actionBtn(TM)}>EDITAR</button>
+                        <button onClick={() => delProveedor(s)} style={actionBtn(RED)}>✕</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2159,12 +2370,12 @@ function ContactosModule({ state, setState }) {
         </div>
       )}
 
-      {/* FORM NUEVO CLIENTE */}
-      {showAddCliente && (
-        <Modal title="Nuevo Cliente" onClose={() => setShowAddCliente(false)} width={500}>
+      {/* ── FORM CLIENTE ─────────────────────────────────────────────────── */}
+      {showClienteForm && (
+        <Modal title={editCliente ? `Editar · ${editCliente.name}` : 'Nuevo Cliente'} onClose={() => setShowClienteForm(false)} width={500}>
           <FR>
-            <Field label="Nombre completo" required>
-              <input value={cf.name} onChange={e => setCf(f => ({ ...f, name: e.target.value }))} placeholder="Ej. García, Roberto" style={inputStyle} />
+            <Field label="Nombre completo">
+              <input value={cf.name} onChange={e => setCf(f => ({ ...f, name: e.target.value }))} placeholder="García, Roberto" style={inputStyle} />
             </Field>
             <Field label="Tier">
               <select value={cf.tier} onChange={e => setCf(f => ({ ...f, tier: e.target.value }))} style={inputStyle}>
@@ -2180,29 +2391,31 @@ function ContactosModule({ state, setState }) {
               <input value={cf.email} onChange={e => setCf(f => ({ ...f, email: e.target.value }))} placeholder="correo@ejemplo.com" style={inputStyle} />
             </Field>
           </FR>
-          <Field label="Ciudad">
-            <input value={cf.city} onChange={e => setCf(f => ({ ...f, city: e.target.value }))} placeholder="CDMX, Monterrey..." style={inputStyle} />
-          </Field>
+          <FR>
+            <Field label="Ciudad">
+              <input value={cf.city} onChange={e => setCf(f => ({ ...f, city: e.target.value }))} placeholder="CDMX, Monterrey..." style={inputStyle} />
+            </Field>
+          </FR>
           <Field label="Notas">
-            <textarea rows={2} value={cf.notes} onChange={e => setCf(f => ({ ...f, notes: e.target.value }))} placeholder="Preferencias, observaciones..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
+            <textarea rows={2} value={cf.notes} onChange={e => setCf(f => ({ ...f, notes: e.target.value }))} placeholder="Preferencias, historial..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
           </Field>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn small variant="secondary" onClick={() => setShowAddCliente(false)}>Cancelar</Btn>
-            <Btn small onClick={saveCliente} disabled={!cf.name}>Guardar Cliente</Btn>
+            <Btn small variant="secondary" onClick={() => setShowClienteForm(false)}>Cancelar</Btn>
+            <Btn small onClick={saveCliente} disabled={!cf.name}>{editCliente ? 'Guardar Cambios' : 'Crear Cliente'}</Btn>
           </div>
         </Modal>
       )}
 
-      {/* FORM NUEVO PROVEEDOR */}
-      {showAddProveedor && (
-        <Modal title="Nuevo Proveedor" onClose={() => setShowAddProveedor(false)} width={500}>
+      {/* ── FORM PROVEEDOR ───────────────────────────────────────────────── */}
+      {showProveedorForm && (
+        <Modal title={editProveedor ? `Editar · ${editProveedor.name}` : 'Nuevo Proveedor'} onClose={() => setShowProveedorForm(false)} width={500}>
           <FR>
-            <Field label="Nombre" required>
+            <Field label="Nombre">
               <input value={pf.name} onChange={e => setPf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre o razón social" style={inputStyle} />
             </Field>
             <Field label="Tipo">
               <select value={pf.type} onChange={e => setPf(f => ({ ...f, type: e.target.value }))} style={inputStyle}>
-                {['Particular', 'Coleccionista', 'Dealer', 'Casa de Empeño', 'Subasta', 'Otro'].map(t => <option key={t}>{t}</option>)}
+                {['Particular', 'Tienda', 'Distribuidor', 'Subasta', 'Otro'].map(t => <option key={t}>{t}</option>)}
               </select>
             </Field>
           </FR>
@@ -2214,15 +2427,22 @@ function ContactosModule({ state, setState }) {
               <input value={pf.email} onChange={e => setPf(f => ({ ...f, email: e.target.value }))} placeholder="correo@ejemplo.com" style={inputStyle} />
             </Field>
           </FR>
-          <Field label="Ciudad">
-            <input value={pf.city} onChange={e => setPf(f => ({ ...f, city: e.target.value }))} placeholder="CDMX, Monterrey..." style={inputStyle} />
-          </Field>
+          <FR>
+            <Field label="Ciudad">
+              <input value={pf.city} onChange={e => setPf(f => ({ ...f, city: e.target.value }))} placeholder="CDMX, Miami..." style={inputStyle} />
+            </Field>
+            <Field label="Rating (1-5)">
+              <select value={pf.rating} onChange={e => setPf(f => ({ ...f, rating: +e.target.value }))} style={inputStyle}>
+                {[1,2,3,4,5].map(n => <option key={n} value={n}>{Stars(n)}</option>)}
+              </select>
+            </Field>
+          </FR>
           <Field label="Notas">
             <textarea rows={2} value={pf.notes} onChange={e => setPf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones, condiciones..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
           </Field>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn small variant="secondary" onClick={() => setShowAddProveedor(false)}>Cancelar</Btn>
-            <Btn small onClick={saveProveedor} disabled={!pf.name}>Guardar Proveedor</Btn>
+            <Btn small variant="secondary" onClick={() => setShowProveedorForm(false)}>Cancelar</Btn>
+            <Btn small onClick={saveProveedor} disabled={!pf.name}>{editProveedor ? 'Guardar Cambios' : 'Crear Proveedor'}</Btn>
           </div>
         </Modal>
       )}
@@ -2332,8 +2552,12 @@ function PendingScreen({ user, onLogout }) {
 }
 
 function AdminModule({ currentUser }) {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [users, setUsers]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [editUser, setEditUser] = useState(null)
+  const [uf, setUf]             = useState({ name: '', role: 'pending', active: true })
+
+  const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
 
   useEffect(() => {
     sb.from('profiles').select('*').order('created_at').then(({ data }) => {
@@ -2342,51 +2566,127 @@ function AdminModule({ currentUser }) {
     })
   }, [])
 
-  const setRole = async (userId, role) => {
-    await sb.from('profiles').update({ role }).eq('id', userId)
-    setUsers(u => u.map(x => x.id !== userId ? x : { ...x, role }))
-    toast(`Rol actualizado a "${role}"`)
+  const openEdit = (u) => {
+    setEditUser(u)
+    setUf({ name: u.name || '', role: u.role || 'pending', active: u.active !== false })
   }
 
-  const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '6px 10px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 12, outline: 'none' }
+  const saveUser = async () => {
+    const updated = { ...editUser, ...uf }
+    await sb.from('profiles').update({ name: uf.name, role: uf.role, active: uf.active }).eq('id', editUser.id)
+    setUsers(us => us.map(x => x.id === editUser.id ? updated : x))
+    toast(`Usuario "${uf.name || editUser.email}" actualizado`)
+    setEditUser(null)
+  }
+
+  const toggleActive = async (u) => {
+    if (u.id === currentUser?.id) return
+    const active = !u.active
+    await sb.from('profiles').update({ active }).eq('id', u.id)
+    setUsers(us => us.map(x => x.id === u.id ? { ...x, active } : x))
+    toast(active ? 'Usuario activado' : 'Usuario desactivado', 'info')
+  }
+
+  const delUser = async (u) => {
+    if (u.id === currentUser?.id) return
+    if (!window.confirm(`¿Eliminar acceso de "${u.email}"? Esta acción no se puede deshacer.`)) return
+    await sb.from('profiles').delete().eq('id', u.id)
+    setUsers(us => us.filter(x => x.id !== u.id))
+    toast('Usuario eliminado del sistema', 'info')
+  }
+
+  const roleColor = { director: G, operador: BLU, inversionista: GRN, pending: TM }
+  const roleLbl   = { director: 'Director', operador: 'Operador', inversionista: 'Inversionista', pending: 'Pendiente' }
 
   return (
     <div>
-      <SH title="Administración" subtitle="Gestión de usuarios y accesos" />
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
-            {['Nombre', 'Email', 'Rol', 'Estado', ''].map(h =>
-              <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
-            )}
-          </tr></thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando...</td></tr>
-            ) : users.map(u => (
-              <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
-                onMouseEnter={e => e.currentTarget.style.background = S2}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '11px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{u.name || '—'}</td>
-                <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
-                <td style={{ padding: '11px 16px' }}>
-                  <select value={u.role} onChange={e => setRole(u.id, e.target.value)}
-                    style={{ ...inputStyle, width: 'auto' }}
-                    disabled={u.id === currentUser?.id}>
-                    {['director', 'operador', 'inversionista', 'pending'].map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </td>
-                <td style={{ padding: '11px 16px' }}>
-                  <Badge label={u.active ? 'Activo' : 'Inactivo'} color={u.active ? GRN : TM} small />
-                </td>
-                <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>
-                  {u.id === currentUser?.id ? 'tú' : ''}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <SH title="Administración" subtitle={`${users.length} usuarios · Gestión de accesos`} />
+
+      {loading ? (
+        <div style={{ padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando usuarios...</div>
+      ) : (
+        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+              {['Nombre', 'Email', 'Rol', 'Estado', 'Ingreso', ''].map(h =>
+                <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+              )}
+            </tr></thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = S2}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <td style={{ padding: '11px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>
+                    {u.name || <span style={{ color: TD, fontStyle: 'italic' }}>Sin nombre</span>}
+                    {u.id === currentUser?.id && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: G, marginLeft: 6, letterSpacing: '.1em' }}>TÚ</span>}
+                  </td>
+                  <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
+                  <td style={{ padding: '11px 16px' }}>
+                    <Badge label={roleLbl[u.role] || u.role} color={roleColor[u.role] || TM} small />
+                  </td>
+                  <td style={{ padding: '11px 16px' }}>
+                    <Badge label={u.active !== false ? 'Activo' : 'Inactivo'} color={u.active !== false ? GRN : RED} small />
+                  </td>
+                  <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>
+                    {u.created_at ? new Date(u.created_at).toLocaleDateString('es-MX') : '—'}
+                  </td>
+                  <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                    {u.id !== currentUser?.id && <>
+                      <button onClick={() => openEdit(u)}
+                        style={{ background: 'none', border: 'none', color: TM, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
+                        EDITAR
+                      </button>
+                      <button onClick={() => toggleActive(u)}
+                        style={{ background: 'none', border: 'none', color: u.active !== false ? G : GRN, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
+                        {u.active !== false ? 'DESACTIVAR' : 'ACTIVAR'}
+                      </button>
+                      <button onClick={() => delUser(u)}
+                        style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
+                        ✕
+                      </button>
+                    </>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Edit user modal */}
+      {editUser && (
+        <Modal title={`Editar · ${editUser.email}`} onClose={() => setEditUser(null)} width={460}>
+          <FR>
+            <Field label="Nombre completo">
+              <input value={uf.name} onChange={e => setUf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre del usuario" style={inputStyle} />
+            </Field>
+          </FR>
+          <FR>
+            <Field label="Rol">
+              <select value={uf.role} onChange={e => setUf(f => ({ ...f, role: e.target.value }))} style={inputStyle}>
+                <option value="director">Director</option>
+                <option value="operador">Operador</option>
+                <option value="inversionista">Inversionista</option>
+                <option value="pending">Pendiente</option>
+              </select>
+            </Field>
+            <Field label="Estado">
+              <select value={uf.active ? 'activo' : 'inactivo'} onChange={e => setUf(f => ({ ...f, active: e.target.value === 'activo' }))} style={inputStyle}>
+                <option value="activo">Activo</option>
+                <option value="inactivo">Inactivo</option>
+              </select>
+            </Field>
+          </FR>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginBottom: 16, letterSpacing: '.1em' }}>
+            EMAIL: {editUser.email}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => setEditUser(null)}>Cancelar</Btn>
+            <Btn small onClick={saveUser}>Guardar Cambios</Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
