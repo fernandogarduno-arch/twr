@@ -109,6 +109,24 @@ function KPI({ label, value, sub, accent = G }) {
       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>{label}</div>
       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, color: TX, fontWeight: 500, lineHeight: 1 }}>{value}</div>
       {sub && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginTop: 5 }}>{sub}</div>}
+      {tab === 'costos' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={() => {
+              const nombre = window.prompt('Nombre del tipo de costo:')
+              if (nombre) setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), { id: 'TC' + uid(), nombre, icono: '📋' }] }))
+            }}>+ Nuevo Tipo</Btn>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            {(state.tiposCosto || []).map(t => (
+              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>{t.icono}</span>
+                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1443,25 +1461,6 @@ function CatalogosModule({ state, setState }) {
         </Modal>
       )}
     </div>
-      {tab === 'costos' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-            <Btn onClick={() => {
-              const nombre = window.prompt('Nombre del tipo de costo:')
-              if (nombre) setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), { id: 'TC' + uid(), nombre, icono: '📋' }] }))
-            }}>+ Nuevo Tipo</Btn>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-            {(state.tiposCosto || []).map(t => (
-              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>{t.icono}</span>
-                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
   )
 }
 
