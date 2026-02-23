@@ -93,6 +93,256 @@ const DEMO = {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  DB HELPERS — write to Supabase
+// ══════════════════════════════════════════════════════════════════════════════
+const db = {
+  // MARCAS
+  async saveBrand(brand) {
+    const { error } = await sb.from('marcas').upsert({
+      id: brand.id, name: brand.name, country: brand.country,
+      founded: brand.founded || null, notes: brand.notes || null
+    })
+    if (error) console.error('saveBrand:', error)
+  },
+
+  // MODELOS
+  async saveModel(model) {
+    const { error } = await sb.from('modelos').upsert({
+      id: model.id, brand_id: model.brandId, name: model.name,
+      family: model.family || null, notes: model.notes || null
+    })
+    if (error) console.error('saveModel:', error)
+  },
+
+  // REFERENCIAS
+  async saveRef(ref) {
+    const { error } = await sb.from('referencias').upsert({
+      id: ref.id, model_id: ref.modelId, ref: ref.ref,
+      caliber: ref.caliber || null, material: ref.material || null,
+      bezel: ref.bezel || null, dial: ref.dial || null,
+      size: ref.size || null, bracelet: ref.bracelet || null,
+      year: ref.year || null, notes: ref.notes || null
+    })
+    if (error) console.error('saveRef:', error)
+  },
+
+  // PROVEEDORES
+  async saveSupplier(s) {
+    const { error } = await sb.from('proveedores').upsert({
+      id: s.id, name: s.name, type: s.type, phone: s.phone || null,
+      email: s.email || null, city: s.city || null, notes: s.notes || null,
+      rating: s.rating || 3, total_deals: s.totalDeals || 0
+    })
+    if (error) console.error('saveSupplier:', error)
+  },
+
+  // CLIENTES
+  async saveClient(c) {
+    const { error } = await sb.from('clientes').upsert({
+      id: c.id, name: c.name, phone: c.phone || null, email: c.email || null,
+      city: c.city || null, tier: c.tier || 'Prospecto', notes: c.notes || null,
+      total_spent: c.totalSpent || 0, total_purchases: c.totalPurchases || 0
+    })
+    if (error) console.error('saveClient:', error)
+  },
+
+  // PIEZAS
+  async saveWatch(w) {
+    const { error } = await sb.from('piezas').upsert({
+      id: w.id, ref_id: w.refId, supplier_id: w.supplierId,
+      serial: w.serial || null, condition: w.condition,
+      full_set: w.fullSet, papers: w.papers, box: w.box,
+      cost: w.cost || 0, price_asked: w.priceAsked || 0,
+      entry_date: w.entryDate || null, status: w.status,
+      stage: w.stage, validated_by: w.validatedBy || null,
+      validation_date: w.validationDate || null, notes: w.notes || null,
+      modo_adquisicion: w.modoAdquisicion || 'sociedad',
+      socio_aporta_id: w.socioAportaId || null,
+      split_personalizado: w.splitPersonalizado || null
+    })
+    if (error) console.error('saveWatch:', error)
+  },
+
+  // COSTO DE PIEZA
+  async saveCosto(c) {
+    const { error } = await sb.from('costos_pieza').upsert({
+      id: c.id, pieza_id: c.piezaId, tipo: c.tipo,
+      fecha: c.fecha || null, monto: c.monto,
+      descripcion: c.descripcion || null
+    })
+    if (error) console.error('saveCosto:', error)
+  },
+
+  // VENTAS
+  async saveVenta(v) {
+    const { error } = await sb.from('ventas').upsert({
+      id: v.id, pieza_id: v.watchId, cliente_id: v.clientId,
+      sale_date: v.saleDate, agreed_price: v.agreedPrice,
+      status: v.status, notes: v.notes || null
+    })
+    if (error) console.error('saveVenta:', error)
+  },
+
+  async updateVentaStatus(id, status) {
+    const { error } = await sb.from('ventas').update({ status }).eq('id', id)
+    if (error) console.error('updateVentaStatus:', error)
+  },
+
+  // PAGOS
+  async savePago(p) {
+    const { error } = await sb.from('pagos').upsert({
+      id: p.id, venta_id: p.ventaId, date: p.date,
+      amount: p.amount, method: p.method, notes: p.notes || null
+    })
+    if (error) console.error('savePago:', error)
+  },
+
+  // SOCIOS
+  async saveSocio(s) {
+    const { error } = await sb.from('socios').upsert({
+      id: s.id, name: s.name, participacion: s.participacion,
+      color: s.color, activo: s.activo
+    })
+    if (error) console.error('saveSocio:', error)
+  },
+
+  // MOVIMIENTO SOCIO
+  async saveMovimientoSocio(m) {
+    const { error } = await sb.from('movimientos_socios').upsert({
+      id: m.id, socio_id: m.socioId, fecha: m.fecha,
+      tipo: m.tipo, monto: m.monto, concepto: m.concepto || null
+    })
+    if (error) console.error('saveMovimientoSocio:', error)
+  },
+
+  // TIPOS DE COSTO
+  async saveTipoCosto(t) {
+    const { error } = await sb.from('tipos_costo').upsert({
+      id: t.id, nombre: t.nombre, icono: t.icono || '📋'
+    })
+    if (error) console.error('saveTipoCosto:', error)
+  },
+
+  // ACTUALIZAR ESTADO DE PIEZA
+  async updateWatchStage(id, stage, status, extra = {}) {
+    const { error } = await sb.from('piezas').update({ stage, status, ...extra }).eq('id', id)
+    if (error) console.error('updateWatchStage:', error)
+  },
+
+  // ACTUALIZAR CLIENTE stats
+  async updateClientStats(clientId, spent, purchases) {
+    const { error } = await sb.from('clientes').update({
+      total_spent: spent, total_purchases: purchases
+    }).eq('id', clientId)
+    if (error) console.error('updateClientStats:', error)
+  },
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  QUICK CREATE — inline mini-modal para crear sin salir del flujo
+// ══════════════════════════════════════════════════════════════════════════════
+function QuickCreate({ title, onClose, children }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: S2, border: `1px solid ${BRG}`, borderRadius: 8, padding: 20, width: 420, boxShadow: '0 20px 60px #00000066' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, letterSpacing: '.15em' }}>CREAR · {title.toUpperCase()}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TM, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// Selector with inline "+ Crear" button
+function SelectWithCreate({ label, value, onChange, options, disabled, onClickCreate, createLabel }) {
+  const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
+  return (
+    <div style={{ flex: 1 }}>
+      <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} style={{ ...inputStyle, flex: 1 }}>
+          {options}
+        </select>
+        <button onClick={onClickCreate} title={createLabel || '+ Crear nuevo'}
+          style={{ background: S3, border: `1px solid ${BRG}`, color: G, padding: '0 12px', borderRadius: 4, cursor: 'pointer', fontSize: 16, flexShrink: 0, fontFamily: "'DM Mono', monospace' " }}>
+          +
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INLINE SELECT — select + "Crear nuevo" sin salir del form
+// ══════════════════════════════════════════════════════════════════════════════
+/**
+ * InlineSelect: dropdown con botón "+ Nuevo" que abre un mini form inline
+ * Props:
+ *   value, onChange, options [{id, label}], placeholder
+ *   createLabel  — texto del botón (ej. "+ Nueva Marca")
+ *   createFields — [{ key, label, type?, options? }]  campos del mini form
+ *   onCreateSave — fn(newItem) => void
+ *   style
+ */
+function InlineSelect({ value, onChange, options, placeholder, createLabel, createFields, onCreateSave, style }) {
+  const [open, setOpen]   = useState(false)
+  const [form, setForm]   = useState({})
+  const inputS = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '8px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 12, width: '100%', outline: 'none' }
+
+  const handleSave = () => {
+    if (!form[createFields[0].key]) return
+    onCreateSave(form)
+    setForm({})
+    setOpen(false)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <select value={value} onChange={e => onChange(e.target.value)}
+          style={{ ...style, flex: 1, background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, outline: 'none' }}>
+          <option value="">{placeholder || '— Seleccionar —'}</option>
+          {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <button onClick={() => setOpen(v => !v)}
+          style={{ padding: '8px 10px', background: open ? G + '22' : S2, border: `1px solid ${open ? G : BR}`, color: open ? G : TM, borderRadius: 4, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 10, whiteSpace: 'nowrap', letterSpacing: '.06em' }}>
+          {open ? '✕' : '+ Nuevo'}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ background: S2, border: `1px solid ${BRG}`, borderRadius: 6, padding: 14, marginTop: 8, animation: 'fi .15s ease' }}>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, marginBottom: 10, letterSpacing: '.1em' }}>{createLabel}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: createFields.length > 1 ? '1fr 1fr' : '1fr', gap: 8, marginBottom: 10 }}>
+            {createFields.map(f => (
+              <div key={f.key}>
+                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TM, letterSpacing: '.1em', marginBottom: 4 }}>{f.label}</label>
+                {f.type === 'select' ? (
+                  <select value={form[f.key] || ''} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} style={inputS}>
+                    {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type || 'text'} value={form[f.key] || ''} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder || ''} style={inputS} />
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button onClick={() => { setOpen(false); setForm({}) }}
+              style={{ padding: '6px 12px', background: 'none', border: `1px solid ${BR}`, color: TM, borderRadius: 3, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 10 }}>Cancelar</button>
+            <button onClick={handleSave} disabled={!form[createFields[0].key]}
+              style={{ padding: '6px 12px', background: G, border: 'none', color: BG, borderRadius: 3, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 10, fontWeight: 600, opacity: !form[createFields[0].key] ? .5 : 1 }}>Guardar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  UI ATOMS
 // ══════════════════════════════════════════════════════════════════════════════
 function Badge({ label, color, small }) {
@@ -252,6 +502,46 @@ function InventarioModule({ state, setState }) {
   const [showAddCosto, setShowAddCosto] = useState(false)
   const [costoForm, setCostoForm] = useState({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
 
+  // Quick create inline
+  const [qc, setQc] = useState(null) // 'brand' | 'model' | 'ref' | 'supplier' | 'client'
+  const [qf, setQf] = useState({})   // quick-create form fields
+  const qInput = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10 }
+
+  const quickCreate = async (type) => {
+    if (type === 'brand') {
+      if (!qf.name) return
+      const brand = { id: 'B' + uid(), name: qf.name, country: qf.country || 'Suiza', founded: qf.founded || null, notes: '' }
+      setState(s => ({ ...s, brands: [...s.brands, brand] }))
+      setWf(f => ({ ...f, _brandId: brand.id, _modelId: '', refId: '' }))
+      await db.saveBrand(brand)
+    } else if (type === 'model') {
+      if (!qf.name || !wf._brandId) return
+      const model = { id: 'M' + uid(), brandId: wf._brandId, name: qf.name, family: qf.family || '', notes: '' }
+      setState(s => ({ ...s, models: [...s.models, model] }))
+      setWf(f => ({ ...f, _modelId: model.id, refId: '' }))
+      await db.saveModel(model)
+    } else if (type === 'ref') {
+      if (!qf.ref || !wf._modelId) return
+      const ref = { id: 'R' + uid(), modelId: wf._modelId, ref: qf.ref, caliber: qf.caliber || '', material: qf.material || 'Acero', bezel: qf.bezel || '', dial: qf.dial || '', size: qf.size || '', bracelet: '', year: +qf.year || null, notes: '' }
+      setState(s => ({ ...s, refs: [...s.refs, ref] }))
+      setWf(f => ({ ...f, refId: ref.id }))
+      await db.saveRef(ref)
+    } else if (type === 'supplier') {
+      if (!qf.name) return
+      const supplier = { id: 'P' + uid(), name: qf.name, type: qf.type || 'Particular', phone: qf.phone || '', email: '', city: '', notes: '', rating: 3, totalDeals: 0 }
+      setState(s => ({ ...s, suppliers: [...s.suppliers, supplier] }))
+      setWf(f => ({ ...f, supplierId: supplier.id }))
+      await db.saveSupplier(supplier)
+    } else if (type === 'client') {
+      if (!qf.name) return
+      const client = { id: 'C' + uid(), name: qf.name, phone: qf.phone || '', email: '', city: '', tier: 'Prospecto', notes: '', totalSpent: 0, totalPurchases: 0 }
+      setState(s => ({ ...s, clients: [...s.clients, client] }))
+      setSf(f => ({ ...f, clientId: client.id }))
+      await db.saveClient(client)
+    }
+    setQc(null); setQf({})
+  }
+
   const filtered = watches.filter(w => {
     if (!search) return true
     const r = refs.find(r => r.id === w.refId), m = models.find(m => m.id === r?.modelId), b = brands.find(b => b.id === m?.brandId)
@@ -264,49 +554,61 @@ function InventarioModule({ state, setState }) {
     { id: 'liquidado',   label: 'Vendidos',        color: TM,  items: filtered.filter(w => w.stage === 'liquidado')   },
   ]
 
-  const saveWatch = () => {
+  const saveWatch = async () => {
     const id = 'W' + uid()
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
-    setState(s => ({ ...s, watches: [...s.watches, { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }] }))
+    const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }
+    setState(s => ({ ...s, watches: [...s.watches, watch] }))
+    await db.saveWatch(watch)
     setShowAdd(false); setWf({ ...blank })
   }
 
-  const saveAdditionalCost = () => {
+  const saveAdditionalCost = async () => {
     if (!costoForm.monto || !selWatch) return
-    const newCosto = { ...costoForm, monto: +costoForm.monto, tipo: costoForm.tipo || (state.tiposCosto?.[0]?.nombre || 'Otros') }
+    const newCosto = { ...costoForm, id: 'CT' + uid(), piezaId: selWatch.id, monto: +costoForm.monto, tipo: costoForm.tipo || (state.tiposCosto?.[0]?.nombre || 'Otros') }
     const updatedWatch = { ...selWatch, costos: [...(selWatch.costos || []), newCosto] }
     setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updatedWatch) }))
     setSelWatch(updatedWatch)
+    await db.saveCosto(newCosto)
     setShowAddCosto(false)
     setCostoForm({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
   }
 
-  const approve = w => {
+  const approve = async w => {
+    const extra = { validated_by: 'Director', validation_date: tod(), entry_date: tod() }
     setState(s => ({ ...s, watches: s.watches.map(x => x.id !== w.id ? x : { ...x, stage: 'inventario', status: 'Disponible', validatedBy: 'Director', validationDate: tod(), entryDate: tod() }) }))
     setSelWatch(p => ({ ...p, stage: 'inventario', status: 'Disponible', validatedBy: 'Director' }))
+    await db.updateWatchStage(w.id, 'inventario', 'Disponible', extra)
   }
 
-  const saveSale = () => {
+  const saveSale = async () => {
     const id = 'S' + uid()
+    const sale = { ...sf, id, watchId: selWatch.id, agreedPrice: +sf.agreedPrice, payments: [], status: 'Pendiente' }
     setState(s => ({
       ...s,
       watches: s.watches.map(x => x.id !== selWatch.id ? x : { ...x, status: 'Vendido', stage: 'liquidado' }),
-      sales:   [...s.sales, { ...sf, id, watchId: selWatch.id, agreedPrice: +sf.agreedPrice, payments: [], status: 'Pendiente' }]
+      sales:   [...s.sales, sale]
     }))
     setSelWatch(p => ({ ...p, status: 'Vendido', stage: 'liquidado' }))
+    await db.updateWatchStage(selWatch.id, 'liquidado', 'Vendido')
+    await db.saveVenta(sale)
     setShowSale(false); setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
   }
 
-  const savePay = saleId => {
+  const savePay = async saleId => {
+    const pago = { ...pf, id: 'PAY' + uid(), ventaId: saleId, amount: +pf.amount }
     setState(s => ({
       ...s,
       sales: s.sales.map(sale => {
         if (sale.id !== saleId) return sale
-        const pays  = [...sale.payments, { ...pf, id: 'PAY' + uid(), amount: +pf.amount }]
+        const pays  = [...sale.payments, pago]
         const total = pays.reduce((a, p) => a + p.amount, 0)
-        return { ...sale, payments: pays, status: total >= sale.agreedPrice ? 'Liquidado' : total > 0 ? 'Parcial' : 'Pendiente' }
+        const status = total >= sale.agreedPrice ? 'Liquidado' : total > 0 ? 'Parcial' : 'Pendiente'
+        db.updateVentaStatus(saleId, status)
+        return { ...sale, payments: pays, status }
       })
     }))
+    await db.savePago(pago)
     setShowPay(null); setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
   }
 
@@ -555,11 +857,9 @@ function InventarioModule({ state, setState }) {
             <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>Costo: {fmt(selWatch.cost)}</div>
           </div>
           <FR>
-            <Field label="Cliente" required>
-              <select value={sf.clientId} onChange={e => setSf(f => ({ ...f, clientId: e.target.value }))} style={selStyle}>
-                <option value="">— Seleccionar —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </Field>
+            <SelectWithCreate label="Cliente *" value={sf.clientId} onChange={v => setSf(f => ({ ...f, clientId: v }))}
+              options={<><option value="">— Seleccionar —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</>}
+              onClickCreate={() => { setQc('client'); setQf({}) }} createLabel="Nuevo cliente" />
             <Field label="Fecha"><input type="date" value={sf.saleDate} onChange={e => setSf(f => ({ ...f, saleDate: e.target.value }))} style={inputStyle} /></Field>
           </FR>
           <FR cols={1}><Field label="Precio acordado (MXN)" required>
@@ -580,32 +880,26 @@ function InventarioModule({ state, setState }) {
             Selecciona del catálogo: Marca → Modelo → Referencia
           </div>
           <FR>
-            <Field label="Marca" required>
-              <select value={wf._brandId || ''} onChange={e => setWf(f => ({ ...f, _brandId: e.target.value, _modelId: '', refId: '' }))} style={selStyle}>
-                <option value="">— Seleccionar —</option>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Modelo" required>
-              <select value={wf._modelId || ''} onChange={e => setWf(f => ({ ...f, _modelId: e.target.value, refId: '' }))} disabled={!wf._brandId} style={selStyle}>
-                <option value="">— Seleccionar —</option>{models.filter(m => m.brandId === wf._brandId).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </Field>
+            <SelectWithCreate label="Marca *" value={wf._brandId || ''} onChange={v => setWf(f => ({ ...f, _brandId: v, _modelId: '', refId: '' }))}
+              options={<><option value="">— Seleccionar —</option>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</>}
+              onClickCreate={() => { setQc('brand'); setQf({}) }} createLabel="Nueva marca" />
+            <SelectWithCreate label="Modelo *" value={wf._modelId || ''} onChange={v => setWf(f => ({ ...f, _modelId: v, refId: '' }))}
+              disabled={!wf._brandId}
+              options={<><option value="">— Seleccionar —</option>{models.filter(m => m.brandId === wf._brandId).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</>}
+              onClickCreate={() => { setQc('model'); setQf({}) }} createLabel="Nuevo modelo" />
           </FR>
-          <FR cols={1}>
-            <Field label="Referencia" required>
-              <select value={wf.refId} onChange={e => setWf(f => ({ ...f, refId: e.target.value }))} disabled={!wf._modelId} style={selStyle}>
-                <option value="">— Seleccionar —</option>{refs.filter(r => r.modelId === wf._modelId).map(r => <option key={r.id} value={r.id}>{r.ref} · {r.material} · {r.dial} · {r.size}</option>)}
-              </select>
-            </Field>
-          </FR>
+          <div style={{ marginBottom: 14 }}>
+            <SelectWithCreate label="Referencia *" value={wf.refId} onChange={v => setWf(f => ({ ...f, refId: v }))}
+              disabled={!wf._modelId}
+              options={<><option value="">— Seleccionar —</option>{refs.filter(r => r.modelId === wf._modelId).map(r => <option key={r.id} value={r.id}>{r.ref} · {r.material} · {r.dial} · {r.size}</option>)}</>}
+              onClickCreate={() => { setQc('ref'); setQf({ material: 'Acero' }) }} createLabel="Nueva referencia" />
+          </div>
           <Divider label="DATOS FÍSICOS" />
           <FR>
             <Field label="Serial"><input value={wf.serial} onChange={e => setWf(f => ({ ...f, serial: e.target.value }))} placeholder="S/N" style={inputStyle} /></Field>
-            <Field label="Proveedor" required>
-              <select value={wf.supplierId} onChange={e => setWf(f => ({ ...f, supplierId: e.target.value }))} style={selStyle}>
-                <option value="">— Seleccionar —</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </Field>
+            <SelectWithCreate label="Proveedor *" value={wf.supplierId} onChange={v => setWf(f => ({ ...f, supplierId: v }))}
+              options={<><option value="">— Seleccionar —</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</>}
+              onClickCreate={() => { setQc('supplier'); setQf({ type: 'Particular' }) }} createLabel="Nuevo proveedor" />
           </FR>
           <FR>
             <Field label="Condición">
@@ -669,40 +963,6 @@ function InventarioModule({ state, setState }) {
               ))}
             </div>
           )}
-          <Divider label="ADQUISICIÓN" />
-          <FR>
-            <Field label="Modo de adquisición">
-              <select value={wf.modoAdquisicion} onChange={e => setWf(f => ({ ...f, modoAdquisicion: e.target.value, splitPersonalizado: null }))} style={selStyle}>
-                <option value="sociedad">🤝 En Sociedad (split global)</option>
-                <option value="twr">🏢 Compra TWR (100% TWR)</option>
-                <option value="aportacion">📦 Aportación de Socio</option>
-                <option value="personalizado">📊 Split Personalizado</option>
-              </select>
-            </Field>
-            {wf.modoAdquisicion === 'aportacion' && (
-              <Field label="Socio que aporta">
-                <select value={wf.socioAportaId || ''} onChange={e => setWf(f => ({ ...f, socioAportaId: e.target.value }))} style={selStyle}>
-                  <option value="">— Seleccionar —</option>
-                  {(state.socios || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </Field>
-            )}
-          </FR>
-          {wf.modoAdquisicion === 'personalizado' && (
-            <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 14 }}>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 8 }}>SPLIT PERSONALIZADO</div>
-              {(state.socios || []).map(s => (
-                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX, minWidth: 140 }}>{s.name}</span>
-                  <input type="number" min="0" max="100"
-                    value={(wf.splitPersonalizado || {})[s.id] ?? s.participacion}
-                    onChange={e => setWf(f => ({ ...f, splitPersonalizado: { ...(f.splitPersonalizado || {}), [s.id]: +e.target.value } }))}
-                    style={{ ...inputStyle, width: 70 }} />
-                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>%</span>
-                </div>
-              ))}
-            </div>
-          )}
           <Field label="Notas">
             <textarea rows={2} value={wf.notes} onChange={e => setWf(f => ({ ...f, notes: e.target.value }))} placeholder="Procedencia, observaciones..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
           </Field>
@@ -711,6 +971,95 @@ function InventarioModule({ state, setState }) {
             <Btn small onClick={saveWatch} disabled={!wf.refId || !wf.supplierId}>Registrar Pieza</Btn>
           </div>
         </Modal>
+      )}
+
+      {/* QUICK CREATE MODALS */}
+      {qc === 'brand' && (
+        <QuickCreate title="Nueva Marca" onClose={() => { setQc(null); setQf({}) }}>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre de la marca *" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
+          <input value={qf.country || ''} onChange={e => setQf(f => ({ ...f, country: e.target.value }))} placeholder="País (Suiza, Japón...)" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('brand')} disabled={!qf.name}>Crear Marca</Btn>
+          </div>
+        </QuickCreate>
+      )}
+
+      {qc === 'model' && (
+        <QuickCreate title="Nuevo Modelo" onClose={() => { setQc(null); setQf({}) }}>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 10 }}>
+            Marca: {brands.find(b => b.id === wf._brandId)?.name || '—'}
+          </div>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre del modelo *" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
+          <input value={qf.family || ''} onChange={e => setQf(f => ({ ...f, family: e.target.value }))} placeholder="Familia (Submariner, Datejust...)" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('model')} disabled={!qf.name || !wf._brandId}>Crear Modelo</Btn>
+          </div>
+        </QuickCreate>
+      )}
+
+      {qc === 'ref' && (
+        <QuickCreate title="Nueva Referencia" onClose={() => { setQc(null); setQf({}) }}>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 10 }}>
+            Modelo: {models.find(m => m.id === wf._modelId)?.name || '—'}
+          </div>
+          {[
+            ['ref', 'Referencia *', 'Ej. 126710BLNR'],
+            ['caliber', 'Calibre', 'Ej. 3285'],
+            ['size', 'Tamaño', 'Ej. 40mm'],
+            ['dial', 'Esfera', 'Ej. Negro'],
+            ['bezel', 'Bisel', 'Ej. Cerachrom'],
+          ].map(([k, label, ph]) => (
+            <input key={k} value={qf[k] || ''} onChange={e => setQf(f => ({ ...f, [k]: e.target.value }))}
+              placeholder={`${label}${label.includes('*') ? '' : ' (opcional)'} — ${ph}`}
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+          ))}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <select value={qf.material || 'Acero'} onChange={e => setQf(f => ({ ...f, material: e.target.value }))}
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, flex: 1, outline: 'none' }}>
+              {['Acero', 'Oro Amarillo', 'Oro Blanco', 'Oro Rosa', 'Titanio', 'Cerámica', 'Platino', 'Bimetálico'].map(m => <option key={m}>{m}</option>)}
+            </select>
+            <input value={qf.year || ''} onChange={e => setQf(f => ({ ...f, year: e.target.value }))} placeholder="Año" type="number"
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: 90, outline: 'none' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('ref')} disabled={!qf.ref || !wf._modelId}>Crear Referencia</Btn>
+          </div>
+        </QuickCreate>
+      )}
+
+      {qc === 'supplier' && (
+        <QuickCreate title="Nuevo Proveedor" onClose={() => { setQc(null); setQf({}) }}>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre *"
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <select value={qf.type || 'Particular'} onChange={e => setQf(f => ({ ...f, type: e.target.value }))}
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, flex: 1, outline: 'none' }}>
+              {['Particular', 'Coleccionista', 'Dealer', 'Casa de Empeño', 'Subasta', 'Otro'].map(t => <option key={t}>{t}</option>)}
+            </select>
+            <input value={qf.phone || ''} onChange={e => setQf(f => ({ ...f, phone: e.target.value }))} placeholder="Teléfono"
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: 140, outline: 'none' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('supplier')} disabled={!qf.name}>Crear Proveedor</Btn>
+          </div>
+        </QuickCreate>
+      )}
+
+      {qc === 'client' && (
+        <QuickCreate title="Nuevo Cliente" onClose={() => { setQc(null); setQf({}) }}>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre completo *"
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+          <input value={qf.phone || ''} onChange={e => setQf(f => ({ ...f, phone: e.target.value }))} placeholder="Teléfono"
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('client')} disabled={!qf.name}>Crear Cliente</Btn>
+          </div>
+        </QuickCreate>
       )}
     </div>
   )
@@ -732,16 +1081,20 @@ function VentasModule({ state, setState }) {
     return b && m ? `${b.name} ${m.name} · ${r?.ref || ''}` : watchId
   }
 
-  const savePay = saleId => {
+  const savePay = async saleId => {
+    const pago = { ...pf, id: 'PAY' + uid(), ventaId: saleId, amount: +pf.amount }
     setState(s => ({
       ...s,
       sales: s.sales.map(sale => {
         if (sale.id !== saleId) return sale
-        const pays  = [...sale.payments, { ...pf, id: 'PAY' + uid(), amount: +pf.amount }]
+        const pays  = [...sale.payments, pago]
         const total = pays.reduce((a, p) => a + p.amount, 0)
-        return { ...sale, payments: pays, status: total >= sale.agreedPrice ? 'Liquidado' : total > 0 ? 'Parcial' : 'Pendiente' }
+        const status = total >= sale.agreedPrice ? 'Liquidado' : total > 0 ? 'Parcial' : 'Pendiente'
+        db.updateVentaStatus(saleId, status)
+        return { ...sale, payments: pays, status }
       })
     }))
+    await db.savePago(pago)
     setShowPay(null); setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
   }
 
@@ -926,9 +1279,24 @@ function CatalogosModule({ state, setState }) {
 
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
 
-  const saveBrand = () => { setState(s => ({ ...s, brands: [...s.brands, { ...bf, id: 'B' + uid() }] })); setShowBrandForm(false); setBf({ name: '', country: 'Suiza', founded: '', notes: '' }) }
-  const saveModel = () => { setState(s => ({ ...s, models: [...s.models, { ...mf, id: 'M' + uid() }] })); setShowModelForm(false); setMf({ brandId: '', name: '', family: '', notes: '' }) }
-  const saveRef   = () => { setState(s => ({ ...s, refs: [...s.refs, { ...rf, id: 'R' + uid(), year: +rf.year }] })); setShowRefForm(false); setRf({ modelId: '', ref: '', caliber: '', material: 'Acero', bezel: '', dial: '', size: '', bracelet: '', year: '', notes: '' }) }
+  const saveBrand = async () => {
+    const brand = { ...bf, id: 'B' + uid() }
+    setState(s => ({ ...s, brands: [...s.brands, brand] }))
+    await db.saveBrand(brand)
+    setShowBrandForm(false); setBf({ name: '', country: 'Suiza', founded: '', notes: '' })
+  }
+  const saveModel = async () => {
+    const model = { ...mf, id: 'M' + uid() }
+    setState(s => ({ ...s, models: [...s.models, model] }))
+    await db.saveModel(model)
+    setShowModelForm(false); setMf({ brandId: '', name: '', family: '', notes: '' })
+  }
+  const saveRef = async () => {
+    const ref = { ...rf, id: 'R' + uid(), year: +rf.year }
+    setState(s => ({ ...s, refs: [...s.refs, ref] }))
+    await db.saveRef(ref)
+    setShowRefForm(false); setRf({ modelId: '', ref: '', caliber: '', material: 'Acero', bezel: '', dial: '', size: '', bracelet: '', year: '', notes: '' })
+  }
 
   const filteredModels = selBrand ? models.filter(m => m.brandId === selBrand.id) : models
   const filteredRefs   = selModel ? refs.filter(r => r.modelId === selModel.id) : refs
@@ -1126,9 +1494,13 @@ function CatalogosModule({ state, setState }) {
       {tab === 'costos' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-            <Btn onClick={() => {
+            <Btn onClick={async () => {
               const nombre = window.prompt('Nombre del tipo de costo:')
-              if (nombre) setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), { id: 'TC' + uid(), nombre, icono: '📋' }] }))
+              if (nombre) {
+                const tipo = { id: 'TC' + uid(), nombre, icono: '📋' }
+                setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), tipo] }))
+                await db.saveTipoCosto(tipo)
+              }
             }}>+ Nuevo Tipo</Btn>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
@@ -1505,20 +1877,22 @@ function InversionistasModule({ state, setState }) {
 
   const getMovimientos = (socioId) => (socios.find(s => s.id === socioId)?.movimientos || [])
 
-  const saveMov = () => {
+  const saveMov = async () => {
     if (!sel) return
     const monto = mv.tipo === 'Distribución' || mv.tipo === 'Retiro' ? -Math.abs(+mv.monto) : +mv.monto
-    const nuevoMov = { id: 'M' + uid(), ...mv, monto }
+    const nuevoMov = { id: 'M' + uid(), socioId: sel.id, ...mv, monto }
     setState(s => ({
       ...s,
       socios: (s.socios || []).map(i => i.id !== sel.id ? i : { ...i, movimientos: [...(i.movimientos || []), nuevoMov] })
     }))
+    await db.saveMovimientoSocio(nuevoMov)
     setShowMov(false)
     setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
   }
 
-  const saveEditSocios = () => {
+  const saveEditSocios = async () => {
     setState(s => ({ ...s, socios: editSocios }))
+    await Promise.all(editSocios.map(s => db.saveSocio(s)))
     setShowEditSocios(false)
   }
 
@@ -1702,14 +2076,18 @@ function ContactosModule({ state, setState }) {
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
   const Stars = n => '★'.repeat(n) + '☆'.repeat(5 - n)
 
-  const saveCliente = () => {
-    setState(s => ({ ...s, clients: [...(s.clients || []), { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }] }))
+  const saveCliente = async () => {
+    const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
+    setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
+    await db.saveClient(client)
     setShowAddCliente(false)
     setCf({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
   }
 
-  const saveProveedor = () => {
-    setState(s => ({ ...s, suppliers: [...(s.suppliers || []), { ...pf, id: 'P' + uid(), rating: 3, totalDeals: 0 }] }))
+  const saveProveedor = async () => {
+    const supplier = { ...pf, id: 'P' + uid(), rating: 3, totalDeals: 0 }
+    setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
+    await db.saveSupplier(supplier)
     setShowAddProveedor(false)
     setPf({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '' })
   }
@@ -1865,11 +2243,97 @@ function ContactosModule({ state, setState }) {
 //  ROOT APP
 // ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [authUser, setAuthUser]   = useState(null)
-  const [profile, setProfile]     = useState(null)
+  const [authUser, setAuthUser]       = useState(null)
+  const [profile, setProfile]         = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [page, setPage]           = useState('dashboard')
-  const [appState, setAppState]   = useState({ ...DEMO })
+  const [dbLoading, setDbLoading]     = useState(false)
+  const [page, setPage]               = useState('dashboard')
+  const [appState, setAppState]       = useState({ ...DEMO })
+
+  // ── Load all data from Supabase ──────────────────────────────────────────
+  const loadData = async () => {
+    setDbLoading(true)
+    try {
+      const [
+        { data: marcas },
+        { data: modelos },
+        { data: refs },
+        { data: proveedores },
+        { data: clientes },
+        { data: piezas },
+        { data: costos },
+        { data: ventas },
+        { data: pagos },
+        { data: socios },
+        { data: movimientos },
+        { data: tiposCosto },
+      ] = await Promise.all([
+        sb.from('marcas').select('*').order('name'),
+        sb.from('modelos').select('*').order('name'),
+        sb.from('referencias').select('*').order('ref'),
+        sb.from('proveedores').select('*').order('name'),
+        sb.from('clientes').select('*').order('name'),
+        sb.from('piezas').select('*').order('created_at', { ascending: false }),
+        sb.from('costos_pieza').select('*'),
+        sb.from('ventas').select('*').order('created_at', { ascending: false }),
+        sb.from('pagos').select('*'),
+        sb.from('socios').select('*').order('participacion', { ascending: false }),
+        sb.from('movimientos_socios').select('*').order('fecha'),
+        sb.from('tipos_costo').select('*').order('nombre'),
+      ])
+
+      // Map DB column names to app field names
+      const mapBrand  = b => ({ id: b.id, name: b.name, country: b.country, founded: b.founded, notes: b.notes })
+      const mapModel  = m => ({ id: m.id, brandId: m.brand_id, name: m.name, family: m.family, notes: m.notes })
+      const mapRef    = r => ({ id: r.id, modelId: r.model_id, ref: r.ref, caliber: r.caliber, material: r.material, bezel: r.bezel, dial: r.dial, size: r.size, bracelet: r.bracelet, year: r.year, notes: r.notes })
+      const mapProv   = p => ({ id: p.id, name: p.name, type: p.type, phone: p.phone, email: p.email, city: p.city, notes: p.notes, rating: p.rating, totalDeals: p.total_deals })
+      const mapClient = c => ({ id: c.id, name: c.name, phone: c.phone, email: c.email, city: c.city, tier: c.tier, notes: c.notes, totalSpent: c.total_spent, totalPurchases: c.total_purchases })
+      const mapPieza  = (p, costosList) => ({
+        id: p.id, refId: p.ref_id, supplierId: p.supplier_id, serial: p.serial,
+        condition: p.condition, fullSet: p.full_set, papers: p.papers, box: p.box,
+        cost: p.cost, priceAsked: p.price_asked, entryDate: p.entry_date,
+        status: p.status, stage: p.stage, validatedBy: p.validated_by,
+        validationDate: p.validation_date, notes: p.notes,
+        modoAdquisicion: p.modo_adquisicion || 'sociedad',
+        socioAportaId: p.socio_aporta_id,
+        splitPersonalizado: p.split_personalizado,
+        costos: (costosList || []).filter(c => c.pieza_id === p.id).map(c => ({
+          id: c.id, tipo: c.tipo, fecha: c.fecha, monto: c.monto, descripcion: c.descripcion
+        }))
+      })
+      const mapVenta  = (v, pagosList) => ({
+        id: v.id, watchId: v.pieza_id, clientId: v.cliente_id,
+        saleDate: v.sale_date, agreedPrice: v.agreed_price,
+        status: v.status, notes: v.notes,
+        payments: (pagosList || []).filter(p => p.venta_id === v.id).map(p => ({
+          id: p.id, date: p.date, amount: p.amount, method: p.method, notes: p.notes
+        }))
+      })
+      const mapSocio  = (s, movsList) => ({
+        id: s.id, name: s.name, participacion: s.participacion,
+        color: s.color, activo: s.activo,
+        movimientos: (movsList || []).filter(m => m.socio_id === s.id).map(m => ({
+          id: m.id, fecha: m.fecha, tipo: m.tipo, monto: m.monto, concepto: m.concepto
+        }))
+      })
+
+      setAppState({
+        brands:     (marcas     || []).map(mapBrand),
+        models:     (modelos    || []).map(mapModel),
+        refs:       (refs       || []).map(mapRef),
+        suppliers:  (proveedores|| []).map(mapProv),
+        clients:    (clientes   || []).map(mapClient),
+        watches:    (piezas     || []).map(p => mapPieza(p, costos || [])),
+        sales:      (ventas     || []).map(v => mapVenta(v, pagos || [])),
+        socios:     (socios     || []).map(s => mapSocio(s, movimientos || [])),
+        tiposCosto: (tiposCosto || []).map(t => ({ id: t.id, nombre: t.nombre, icono: t.icono })),
+        investors: [], clients_raw: clientes || [],
+      })
+    } catch(e) {
+      console.error('Error loading data:', e)
+    }
+    setDbLoading(false)
+  }
 
   useEffect(() => {
     // Check existing session
@@ -1878,6 +2342,7 @@ export default function App() {
         const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
+        if (p && p.role !== 'pending') await loadData()
       }
       setAuthLoading(false)
     })
@@ -1888,14 +2353,15 @@ export default function App() {
         const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
+        if (p && p.role !== 'pending') await loadData()
       } else if (event === 'SIGNED_OUT') {
-        setAuthUser(null); setProfile(null)
+        setAuthUser(null); setProfile(null); setAppState({ ...DEMO })
       }
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  const logout = async () => { await sb.auth.signOut(); setAuthUser(null); setProfile(null); setPage('dashboard') }
+  const logout = async () => { await sb.auth.signOut(); setAuthUser(null); setProfile(null); setPage('dashboard'); setAppState({ ...DEMO }) }
 
   // Auto-select first valid page (must be before any conditional returns)
   useEffect(() => {
@@ -1906,10 +2372,13 @@ export default function App() {
   }, [profile?.role])
 
   // Loading
-  if (authLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
-      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
-      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD, letterSpacing: '.2em' }}>CARGANDO TWR OS...</div>
+  if (authLoading || dbLoading) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG, gap: 16 }}>
+      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}`}</style>
+      <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: G }}>The Wrist Room</div>
+      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, letterSpacing: '.25em', animation: 'pulse 1.5s infinite' }}>
+        {dbLoading ? 'CARGANDO DATOS...' : 'TWR OS...'}
+      </div>
     </div>
   )
 
