@@ -6,7 +6,15 @@ import { createClient } from '@supabase/supabase-js'
 // ══════════════════════════════════════════════════════════════════════════════
 const sb = createClient(
   import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  {
+    auth: {
+      persistSession: true,
+      storageKey: 'twr-auth',
+      detectSessionInUrl: true,
+      lock: (name, acquireTimeout, fn) => fn()
+    }
+  }
 )
 
 // ══════════════════════════════════════════════════════════════════════════════
