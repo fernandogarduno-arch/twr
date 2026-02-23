@@ -1514,7 +1514,10 @@ export default function App() {
   const [profile, setProfile]     = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [page, setPage]           = useState('dashboard')
-  const [appState, setAppState]   = useState({ ...DEMO })
+  const [appState, setAppState] = useState({
+  brands: [], models: [], refs: [], watches: [],
+  sales: [], payments: [], contacts: [], suppliers: []
+})
 
   useEffect(() => {
     // Check existing session
