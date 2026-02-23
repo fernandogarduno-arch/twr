@@ -73,7 +73,23 @@ const statusColor = s => ({ Disponible: GRN, Vendido: TM, Consignado: BLU, Reser
 const DEMO = {
   brands: [], models: [], refs: [], watches: [],
   sales: [], payments: [], contacts: [], suppliers: [],
-  clients: [], investors: []
+  clients: [], investors: [],
+  // Socios configurables (no hardcodeados)
+  socios: [
+    { id: 'S1', name: 'Fernando Garduño', participacion: 40, color: '#C9A96E', activo: true },
+    { id: 'S2', name: 'TWR Capital',      participacion: 60, color: '#9B59B6', activo: true },
+  ],
+  // Catálogo de tipos de costo
+  tiposCosto: [
+    { id: 'TC1', nombre: 'Envío / Flete',     icono: '📦' },
+    { id: 'TC2', nombre: 'Autenticación',      icono: '🔍' },
+    { id: 'TC3', nombre: 'Reparación',         icono: '🔧' },
+    { id: 'TC4', nombre: 'Mantenimiento',      icono: '⚙️'  },
+    { id: 'TC5', nombre: 'Seguro',             icono: '🛡️'  },
+    { id: 'TC6', nombre: 'Almacenaje',         icono: '🏪' },
+    { id: 'TC7', nombre: 'Comisión',           icono: '💼' },
+    { id: 'TC8', nombre: 'Otros',              icono: '📋' },
+  ],
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -548,10 +564,12 @@ function InventarioModule({ state, setState }) {
   const [showPay, setShowPay]   = useState(null)
   const [search, setSearch]     = useState('')
 
-  const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '' }
+  const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
   const [wf, setWf] = useState({ ...blank })
   const [sf, setSf] = useState({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
   const [pf, setPf] = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+  const [showAddCosto, setShowAddCosto] = useState(false)
+  const [costoForm, setCostoForm] = useState({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
 
   const filtered = watches.filter(w => {
     if (!search) return true
@@ -568,8 +586,18 @@ function InventarioModule({ state, setState }) {
   const saveWatch = () => {
     const id = 'W' + uid()
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
-    setState(s => ({ ...s, watches: [...s.watches, { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '' }] }))
+    setState(s => ({ ...s, watches: [...s.watches, { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }] }))
     setShowAdd(false); setWf({ ...blank })
+  }
+
+  const saveAdditionalCost = () => {
+    if (!costoForm.monto || !selWatch) return
+    const newCosto = { ...costoForm, monto: +costoForm.monto, tipo: costoForm.tipo || (state.tiposCosto?.[0]?.nombre || 'Otros') }
+    const updatedWatch = { ...selWatch, costos: [...(selWatch.costos || []), newCosto] }
+    setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updatedWatch) }))
+    setSelWatch(updatedWatch)
+    setShowAddCosto(false)
+    setCostoForm({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
   }
 
   const approve = w => {
@@ -765,6 +793,72 @@ function InventarioModule({ state, setState }) {
             )
           })()}
 
+
+          {/* COSTOS ADICIONALES */}
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${BR}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>COSTOS ADICIONALES</span>
+              <button onClick={() => setShowAddCosto(true)}
+                style={{ background: 'none', border: `1px solid ${BR}`, color: TM, padding: '3px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>
+                + Agregar Costo
+              </button>
+            </div>
+            {(selWatch.costos || []).length === 0 && (
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, padding: '6px 0' }}>Sin costos adicionales registrados</div>
+            )}
+            {(selWatch.costos || []).map((c, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: S2, borderRadius: 3, marginBottom: 3 }}>
+                <div>
+                  <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{c.tipo}</span>
+                  {c.descripcion && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginLeft: 8 }}>{c.descripcion}</span>}
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginLeft: 8 }}>{fmtD(c.fecha)}</span>
+                </div>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: RED }}>+{fmt(c.monto)}</span>
+              </div>
+            ))}
+            {(selWatch.costos || []).length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', borderTop: `1px solid ${BR}`, marginTop: 4 }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>Costo total (base + adicionales)</span>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: G }}>
+                  {fmt(selWatch.cost + (selWatch.costos || []).reduce((a, c) => a + c.monto, 0))}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {showAddCosto && (
+            <div style={{ background: S3, border: `1px solid ${BRG}`, borderRadius: 6, padding: 14, marginTop: 10 }}>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, marginBottom: 12, letterSpacing: '.1em' }}>NUEVO COSTO</div>
+              <FR>
+                <Field label="Tipo">
+                  <select value={costoForm.tipo} onChange={e => setCostoForm(f => ({ ...f, tipo: e.target.value }))}
+                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
+                    {(state.tiposCosto || []).map(t => <option key={t.id}>{t.icono} {t.nombre}</option>)}
+                  </select>
+                </Field>
+                <Field label="Fecha">
+                  <input type="date" value={costoForm.fecha}
+                    onChange={e => setCostoForm(f => ({ ...f, fecha: e.target.value }))}
+                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
+                </Field>
+              </FR>
+              <FR>
+                <Field label="Monto (MXN)">
+                  <input type="number" value={costoForm.monto} onChange={e => setCostoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0"
+                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
+                </Field>
+                <Field label="Descripción">
+                  <input value={costoForm.descripcion} onChange={e => setCostoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Detalle..."
+                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
+                </Field>
+              </FR>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <Btn small variant="secondary" onClick={() => setShowAddCosto(false)}>Cancelar</Btn>
+                <Btn small onClick={saveAdditionalCost} disabled={!costoForm.monto}>Guardar Costo</Btn>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8, paddingTop: 14, borderTop: `1px solid ${BR}` }}>
             {selWatch.stage === 'oportunidad' && <Btn variant="ghost" small onClick={() => approve(selWatch)}>✓ Aprobar → Inventario</Btn>}
             {selWatch.stage === 'inventario' && !selSale && <Btn small onClick={() => setShowSale(true)}>Registrar Venta</Btn>}
@@ -858,6 +952,74 @@ function InventarioModule({ state, setState }) {
           {wf.cost && wf.priceAsked && (
             <div style={{ background: GRN + '11', border: `1px solid ${GRN}33`, borderRadius: 3, padding: '6px 12px', marginBottom: 10, fontFamily: "'DM Mono', monospace", fontSize: 11, color: GRN }}>
               Margen potencial: +{fmt(wf.priceAsked - wf.cost)} ({((wf.priceAsked - wf.cost) / wf.cost * 100).toFixed(1)}%)
+            </div>
+          )}
+          <Divider label="ADQUISICIÓN" />
+          <FR>
+            <Field label="Modo de adquisición">
+              <select value={wf.modoAdquisicion} onChange={e => setWf(f => ({ ...f, modoAdquisicion: e.target.value, splitPersonalizado: null }))} style={selStyle}>
+                <option value="sociedad">🤝 En Sociedad (split global)</option>
+                <option value="twr">🏢 Compra TWR (100% TWR)</option>
+                <option value="aportacion">📦 Aportación de Socio</option>
+                <option value="personalizado">📊 Split Personalizado</option>
+              </select>
+            </Field>
+            {wf.modoAdquisicion === 'aportacion' && (
+              <Field label="Socio que aporta">
+                <select value={wf.socioAportaId || ''} onChange={e => setWf(f => ({ ...f, socioAportaId: e.target.value }))} style={selStyle}>
+                  <option value="">— Seleccionar —</option>
+                  {(state?.socios || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </Field>
+            )}
+          </FR>
+          {wf.modoAdquisicion === 'personalizado' && (
+            <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 14 }}>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 8 }}>SPLIT PERSONALIZADO</div>
+              {(state?.socios || []).map((s, i) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX, width: 140 }}>{s.name}</span>
+                  <input type="number" min="0" max="100"
+                    value={(wf.splitPersonalizado || {})[s.id] ?? s.participacion}
+                    onChange={e => setWf(f => ({ ...f, splitPersonalizado: { ...(f.splitPersonalizado || {}), [s.id]: +e.target.value } }))}
+                    style={{ ...inputStyle, width: 70 }} />
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>%</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <Divider label="ADQUISICIÓN" />
+          <FR>
+            <Field label="Modo de adquisición">
+              <select value={wf.modoAdquisicion} onChange={e => setWf(f => ({ ...f, modoAdquisicion: e.target.value, splitPersonalizado: null }))} style={selStyle}>
+                <option value="sociedad">🤝 En Sociedad (split global)</option>
+                <option value="twr">🏢 Compra TWR (100% TWR)</option>
+                <option value="aportacion">📦 Aportación de Socio</option>
+                <option value="personalizado">📊 Split Personalizado</option>
+              </select>
+            </Field>
+            {wf.modoAdquisicion === 'aportacion' && (
+              <Field label="Socio que aporta">
+                <select value={wf.socioAportaId || ''} onChange={e => setWf(f => ({ ...f, socioAportaId: e.target.value }))} style={selStyle}>
+                  <option value="">— Seleccionar —</option>
+                  {(state.socios || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </Field>
+            )}
+          </FR>
+          {wf.modoAdquisicion === 'personalizado' && (
+            <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 14 }}>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 8 }}>SPLIT PERSONALIZADO</div>
+              {(state.socios || []).map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX, minWidth: 140 }}>{s.name}</span>
+                  <input type="number" min="0" max="100"
+                    value={(wf.splitPersonalizado || {})[s.id] ?? s.participacion}
+                    onChange={e => setWf(f => ({ ...f, splitPersonalizado: { ...(f.splitPersonalizado || {}), [s.id]: +e.target.value } }))}
+                    style={{ ...inputStyle, width: 70 }} />
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>%</span>
+                </div>
+              ))}
             </div>
           )}
           <Field label="Notas">
@@ -1070,7 +1232,7 @@ function ReportesModule({ state }) {
 //  CATÁLOGOS
 // ══════════════════════════════════════════════════════════════════════════════
 function CatalogosModule({ state, setState }) {
-  const { brands, models, refs } = state
+  const { brands, models, refs, tiposCosto } = state
   const [tab, setTab]         = useState('marcas')
   const [selBrand, setSelBrand] = useState(null)
   const [selModel, setSelModel] = useState(null)
@@ -1110,7 +1272,7 @@ function CatalogosModule({ state, setState }) {
       )}
 
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: `1px solid ${BR}` }}>
-        {[['marcas', 'Marcas', brands.length], ['modelos', 'Modelos', models.length], ['referencias', 'Referencias', refs.length]].map(([id, label, n]) => (
+        {[['marcas', 'Marcas', brands.length], ['modelos', 'Modelos', models.length], ['referencias', 'Referencias', refs.length], ['costos', 'Tipos de Costo', (state.tiposCosto||[]).length]].map(([id, label, n]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ padding: '10px 20px', background: 'none', border: 'none', borderBottom: tab === id ? `2px solid ${G}` : '2px solid transparent', color: tab === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
             {label} <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: tab === id ? G : TD, marginLeft: 4 }}>{n}</span>
@@ -1281,6 +1443,25 @@ function CatalogosModule({ state, setState }) {
         </Modal>
       )}
     </div>
+      {tab === 'costos' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={() => {
+              const nombre = window.prompt('Nombre del tipo de costo:')
+              if (nombre) setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), { id: 'TC' + uid(), nombre, icono: '📋' }] }))
+            }}>+ Nuevo Tipo</Btn>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            {(state.tiposCosto || []).map(t => (
+              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>{t.icono}</span>
+                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
   )
 }
 
@@ -1288,60 +1469,193 @@ function CatalogosModule({ state, setState }) {
 //  INVERSIONISTAS
 // ══════════════════════════════════════════════════════════════════════════════
 function InversionistasModule({ state, setState }) {
-  const { investors, sales, watches } = state
-  const [sel, setSel]       = useState(null)
-  const [showMov, setShowMov] = useState(false)
-  const [mv, setMv]         = useState({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
+  const { sales, watches, socios: sociosState } = state
+  const [sel, setSel]           = useState(null)
+  const [showMov, setShowMov]   = useState(false)
+  const [showEditSocios, setShowEditSocios] = useState(false)
+  const [mv, setMv]             = useState({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
+  const [editSocios, setEditSocios] = useState(null)
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
 
-  const utilidad = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
+  const socios = sociosState || []
+
+  // Costo total por pieza (base + costos adicionales)
+  const costoTotal = w => (w?.cost || 0) + (w?.costos || []).reduce((a, c) => a + c.monto, 0)
+
+  // Split de una pieza según su modo
+  const getSplitPieza = (pieza) => {
+    if (!pieza) return {}
+    if (pieza.modoAdquisicion === 'twr') return socios.reduce((acc, s) => ({ ...acc, [s.id]: s.name === 'TWR Capital' ? 100 : 0 }), {})
+    if (pieza.modoAdquisicion === 'aportacion') return socios.reduce((acc, s) => ({ ...acc, [s.id]: s.id === pieza.socioAportaId ? 100 : 0 }), {})
+    if (pieza.modoAdquisicion === 'personalizado' && pieza.splitPersonalizado) return pieza.splitPersonalizado
+    return socios.reduce((acc, s) => ({ ...acc, [s.id]: s.participacion }), {})
+  }
+
+  // Utilidad total liquidada por socio
+  const utilidadPorSocio = socios.reduce((acc, s) => {
+    const util = (sales || []).filter(sale => sale.status === 'Liquidado').reduce((a, sale) => {
+      const w = (watches || []).find(x => x.id === sale.watchId)
+      const utilBruta = sale.agreedPrice - costoTotal(w)
+      const split = getSplitPieza(w)
+      return a + utilBruta * (split[s.id] || 0) / 100
+    }, 0)
+    return { ...acc, [s.id]: util }
+  }, {})
+
+  const utilidadTotal = Object.values(utilidadPorSocio).reduce((a, v) => a + v, 0)
+
+  const getMovimientos = (socioId) => (socios.find(s => s.id === socioId)?.movimientos || [])
 
   const saveMov = () => {
+    if (!sel) return
     const monto = mv.tipo === 'Distribución' || mv.tipo === 'Retiro' ? -Math.abs(+mv.monto) : +mv.monto
-    const upd = investors.map(i => i.id !== sel.id ? i : { ...i, movimientos: [...(i.movimientos || []), { id: 'M' + uid(), ...mv, monto }] })
-    setState(s => ({ ...s, investors: upd }))
-    setSel(upd.find(i => i.id === sel.id))
-    setShowMov(false); setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
+    const nuevoMov = { id: 'M' + uid(), ...mv, monto }
+    setState(s => ({
+      ...s,
+      socios: (s.socios || []).map(i => i.id !== sel.id ? i : { ...i, movimientos: [...(i.movimientos || []), nuevoMov] })
+    }))
+    setShowMov(false)
+    setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
   }
+
+  const saveEditSocios = () => {
+    setState(s => ({ ...s, socios: editSocios }))
+    setShowEditSocios(false)
+  }
+
+  const selConMovimientos = sel ? socios.find(s => s.id === sel.id) : null
 
   return (
     <div>
-      <SH title="Inversionistas" subtitle={`${investors.length} socios · ${fmt(investors.reduce((a, i) => a + i.capitalAportado, 0))} capital`} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
-        {investors.map(inv => {
-          const ap = (inv.movimientos || []).filter(m => m.tipo === 'Aportación').reduce((a, m) => a + m.monto, 0)
-          const di = (inv.movimientos || []).filter(m => m.tipo === 'Distribución' || m.tipo === 'Retiro').reduce((a, m) => a + Math.abs(m.monto), 0)
-          const corr = utilidad * inv.participacion / 100
+      <SH title="Socios" subtitle={`${socios.length} socios · split global configurable`}
+        action="⚙ Configurar Socios" onAction={() => { setEditSocios(JSON.parse(JSON.stringify(socios))); setShowEditSocios(true) }} />
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${socios.length + 1},1fr)`, gap: 14, marginBottom: 24 }}>
+        <KPI label="Utilidad Total Liquidada" value={fmt(utilidadTotal)} accent={G} />
+        {socios.map(s => (
+          <KPI key={s.id} label={s.name} value={fmt(utilidadPorSocio[s.id] || 0)} accent={s.color || G} sub={`${s.participacion}% split global`} />
+        ))}
+      </div>
+
+      {/* Tarjetas de socios */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16, marginBottom: 24 }}>
+        {socios.map(inv => {
+          const movs = inv.movimientos || []
+          const ap = movs.filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
+          const di = movs.filter(m => m.monto < 0).reduce((a, m) => a + Math.abs(m.monto), 0)
+          const corr = utilidadPorSocio[inv.id] || 0
+          const pendiente = corr - di
           return (
             <div key={inv.id} onClick={() => setSel(inv)}
-              style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 18, cursor: 'pointer', transition: 'border-color .2s' }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = G} onMouseLeave={e => e.currentTarget.style.borderColor = BR}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, color: TX }}>{inv.name}</div>
-                <Badge label={`${inv.participacion}%`} color={G} />
+              style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 20, cursor: 'pointer', transition: 'border-color .2s' }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = inv.color || G}
+              onMouseLeave={e => e.currentTarget.style.borderColor = BR}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, color: TX }}>{inv.name}</div>
+                <Badge label={`${inv.participacion}% global`} color={inv.color || G} />
               </div>
-              <div style={{ background: S3, borderRadius: 2, height: 3, marginBottom: 12 }}><div style={{ background: G, height: 3, width: `${inv.participacion}%` }} /></div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                {[['Aportado', fmt(ap), TX], ['Distribuido', fmt(di), GRN], ['Saldo', fmt(ap - di), G]].map(([l, v, c]) => (
+              <div style={{ background: S3, borderRadius: 2, height: 4, marginBottom: 14 }}>
+                <div style={{ background: inv.color || G, height: 4, width: `${inv.participacion}%`, borderRadius: 2 }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10 }}>
+                {[
+                  ['Aportado', fmt(ap), TX],
+                  ['Distribuido', fmt(di), GRN],
+                  ['Corresponde', fmt(corr), inv.color || G],
+                  ['Pendiente', fmt(Math.max(0, pendiente)), pendiente > 0 ? RED : TM],
+                ].map(([l, v, c]) => (
                   <div key={l}>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginBottom: 2 }}>{l}</div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginBottom: 3 }}>{l}</div>
                     <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: c }}>{v}</div>
                   </div>
                 ))}
               </div>
-              {corr > 0 && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: PRP, marginTop: 8 }}>Corresponde: {fmt(corr)}</div>}
             </div>
           )
         })}
       </div>
 
-      {sel && (
-        <Modal title={`Cuenta · ${sel.name}`} onClose={() => setSel(null)} width={600}>
+      {/* Tabla distribución por venta */}
+      {(sales || []).filter(s => s.status === 'Liquidado').length > 0 && (
+        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden', marginBottom: 24 }}>
+          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>
+            DISTRIBUCIÓN POR VENTA LIQUIDADA
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+              {['Pieza', 'Modo', 'Costo Total', 'Venta', 'Utilidad', ...socios.map(s => `${s.name} (${s.participacion}%)`)].map(h =>
+                <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.08em', fontWeight: 400, whiteSpace: 'nowrap' }}>{h}</th>
+              )}
+            </tr></thead>
+            <tbody>
+              {(sales || []).filter(s => s.status === 'Liquidado').map(s => {
+                const w = (watches || []).find(x => x.id === s.watchId)
+                const ct = costoTotal(w)
+                const util = s.agreedPrice - ct
+                const split = getSplitPieza(w)
+                const modos = { sociedad: '🤝 Sociedad', twr: '🏢 TWR', aportacion: '📦 Aportación', personalizado: '📊 Custom' }
+                return (
+                  <tr key={s.id} style={{ borderBottom: `1px solid ${BR}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = S2}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{w?.id || '—'}</td>
+                    <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>{modos[w?.modoAdquisicion || 'sociedad']}</td>
+                    <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{fmt(ct)}</td>
+                    <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TX }}>{fmt(s.agreedPrice)}</td>
+                    <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 12, color: util > 0 ? GRN : RED, fontWeight: 500 }}>{fmt(util)}</td>
+                    {socios.map(soc => (
+                      <td key={soc.id} style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: soc.color || G }}>
+                        {fmt(util * (split[soc.id] || 0) / 100)}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modal configurar socios */}
+      {showEditSocios && editSocios && (
+        <Modal title="Configurar Socios" onClose={() => setShowEditSocios(false)} width={500}>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 16 }}>
+            El split global aplica a todas las piezas marcadas como "En Sociedad"
+          </div>
+          {editSocios.map((s, i) => (
+            <div key={s.id} style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, padding: '10px 14px', background: S2, borderRadius: 4 }}>
+              <input value={s.name} onChange={e => setEditSocios(prev => prev.map((x, j) => j !== i ? x : { ...x, name: e.target.value }))}
+                style={{ ...inputStyle, flex: 1 }} placeholder="Nombre del socio" />
+              <input type="number" min="0" max="100" value={s.participacion}
+                onChange={e => setEditSocios(prev => prev.map((x, j) => j !== i ? x : { ...x, participacion: +e.target.value }))}
+                style={{ ...inputStyle, width: 70 }} />
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>%</span>
+            </div>
+          ))}
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: editSocios.reduce((a, s) => a + s.participacion, 0) === 100 ? GRN : RED, marginBottom: 14 }}>
+            Total: {editSocios.reduce((a, s) => a + s.participacion, 0)}% {editSocios.reduce((a, s) => a + s.participacion, 0) !== 100 ? '⚠ Debe sumar 100%' : '✓'}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => setShowEditSocios(false)}>Cancelar</Btn>
+            <Btn small onClick={saveEditSocios} disabled={editSocios.reduce((a, s) => a + s.participacion, 0) !== 100}>Guardar</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal detalle socio */}
+      {sel && selConMovimientos && (
+        <Modal title={`${selConMovimientos.name}`} onClose={() => { setSel(null); setShowMov(false) }} width={580}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Badge label={`${sel.participacion}% participación`} color={G} />
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
+              Corresponde: <span style={{ color: G }}>{fmt(utilidadPorSocio[sel.id] || 0)}</span>
+            </div>
             <Btn small onClick={() => setShowMov(true)}>+ Movimiento</Btn>
           </div>
-          {[...(sel.movimientos || [])].reverse().map((m, i) => (
+          {(selConMovimientos.movimientos || []).length === 0 && (
+            <div style={{ textAlign: 'center', padding: '24px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Sin movimientos registrados</div>
+          )}
+          {[...(selConMovimientos.movimientos || [])].reverse().map((m, i) => (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', background: i % 2 === 0 ? S2 : 'transparent', borderRadius: 4, marginBottom: 2 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ width: 26, height: 26, borderRadius: '50%', background: m.monto > 0 ? GRN + '22' : RED + '22', border: `1px solid ${m.monto > 0 ? GRN : RED}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: m.monto > 0 ? GRN : RED }}>{m.monto > 0 ? '↑' : '↓'}</div>
@@ -1357,7 +1671,7 @@ function InversionistasModule({ state, setState }) {
             <div style={{ background: S3, border: `1px solid ${BRG}`, borderRadius: 6, padding: 14, marginTop: 14 }}>
               <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, marginBottom: 12, letterSpacing: '.1em' }}>NUEVO MOVIMIENTO</div>
               <FR>
-                <Field label="Tipo"><select value={mv.tipo} onChange={e => setMv(m => ({ ...m, tipo: e.target.value }))} style={{ ...inputStyle }}>{['Aportación', 'Distribución', 'Retiro', 'Ajuste'].map(t => <option key={t}>{t}</option>)}</select></Field>
+                <Field label="Tipo"><select value={mv.tipo} onChange={e => setMv(m => ({ ...m, tipo: e.target.value }))} style={inputStyle}>{['Aportación', 'Distribución', 'Retiro', 'Ajuste'].map(t => <option key={t}>{t}</option>)}</select></Field>
                 <Field label="Fecha"><input type="date" value={mv.fecha} onChange={e => setMv(m => ({ ...m, fecha: e.target.value }))} style={inputStyle} /></Field>
               </FR>
               <FR>
