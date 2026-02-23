@@ -1,4 +1,4 @@
-# TWR OS v4 · The Wrist Room Operating System
+# TWR OS v4 · The Wrist Room Operating   System
 
 ## Setup en 3 pasos
 
