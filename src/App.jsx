@@ -12,7 +12,7 @@ const sb = createClient(
       persistSession: true,
       storageKey: 'twr-auth-v4',
       detectSessionInUrl: true,
-      lock: (_name, _acquireTimeout, fn) => fn()
+      lock: async (_name, _acquireTimeout, fn) => await fn()
     }
   }
 )
