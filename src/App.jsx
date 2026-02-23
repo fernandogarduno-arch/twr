@@ -12,7 +12,7 @@ const sb = createClient(
       persistSession: true,
       storageKey: 'twr-auth-v4',
       detectSessionInUrl: true,
-      lock: async (_name, _acquireTimeout, fn) => await fn()
+      lock: (_name, _acquireTimeout, fn) => fn()
     }
   }
 )
@@ -1542,6 +1542,14 @@ export default function App() {
 
   const logout = async () => { await sb.auth.signOut(); setAuthUser(null); setProfile(null); setPage('dashboard') }
 
+  // Auto-select first valid page (must be before any conditional returns)
+  useEffect(() => {
+    if (profile && profile.role) {
+      const nav = NAV_ITEMS.filter(n => n.roles.includes(profile.role))
+      if (!nav.find(n => n.id === page) && nav.length > 0) setPage(nav[0].id)
+    }
+  }, [profile?.role])
+
   // Loading
   if (authLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
@@ -1566,14 +1574,9 @@ export default function App() {
     </>
   )
 
-  const role       = profile.role
-  const allowedNav = NAV_ITEMS.filter(n => n.roles.includes(role))
+  const role       = profile ? profile.role : null
+  const allowedNav = role ? NAV_ITEMS.filter(n => n.roles.includes(role)) : []
   const hasSaleAlert = role !== 'inversionista' && appState.sales.some(s => s.status !== 'Liquidado')
-
-  // Auto-select first valid page
-  useEffect(() => {
-    if (!allowedNav.find(n => n.id === page) && allowedNav.length > 0) setPage(allowedNav[0].id)
-  }, [role])
 
   const renderPage = () => {
     const s = { state: appState, setState: setAppState }
