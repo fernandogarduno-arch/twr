@@ -75,6 +75,7 @@ const DEMO = {
   sales: [], payments: [], contacts: [], suppliers: [],
   clients: [], investors: []
 }
+
 // ══════════════════════════════════════════════════════════════════════════════
 //  UI ATOMS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -461,7 +462,7 @@ function DashboardModule({ state }) {
   const sold    = watches.filter(w => w.stage === 'liquidado')
   const capital = investors.reduce((a, i) => a + i.capitalAportado, 0)
   const utilidad = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
-  const porCobrar = sales.filter(s => s.status !== 'Liquidado').reduce((a, s) => { const c = s.payments.reduce((x, p) => x + p.amount, 0); return a + (s.agreedPrice - c) }, 0)
+  const porCobrar = sales.filter(s => s.status !== 'Liquidado').reduce((a, s) => { const c = (s.payments || []).reduce((x, p) => x + p.amount, 0); return a + (s.agreedPrice - c) }, 0)
 
   const alertas = [
     ...watches.filter(w => w.stage === 'inventario' && dias(w.entryDate) > 60).map(w => {
@@ -902,7 +903,7 @@ function VentasModule({ state, setState }) {
   }
 
   const totalVentas  = sales.reduce((a, s) => a + s.agreedPrice, 0)
-  const totalCobrado = sales.reduce((a, s) => a + s.payments.reduce((x, p) => x + p.amount, 0), 0)
+  const totalCobrado = sales.reduce((a, s) => a + (s.payments || []).reduce((x, p) => x + p.amount, 0), 0)
   const porCobrar    = totalVentas - totalCobrado
   const pendientes   = sales.filter(s => s.status !== 'Liquidado')
 
@@ -1007,7 +1008,7 @@ function ReportesModule({ state }) {
   const capital   = investors.reduce((a, i) => a + i.capitalAportado, 0)
   const roi       = capital > 0 ? (utilidad / capital * 100).toFixed(1) : 0
   const margenProm = sales.length > 0 ? (sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) / s.agreedPrice * 100 }, 0) / sales.length).toFixed(1) : 0
-  const distInv   = investors.map(inv => { const dist = inv.movimientos.filter(m => m.tipo === 'Distribución' || m.tipo === 'Retiro').reduce((a, m) => a + Math.abs(m.monto), 0); const corr = utilidad * inv.participacion / 100; return { ...inv, dist, corr, pend: corr - dist } })
+  const distInv   = investors.map(inv => { const dist = (inv.movimientos || []).filter(m => m.tipo === 'Distribución' || m.tipo === 'Retiro').reduce((a, m) => a + Math.abs(m.monto), 0); const corr = utilidad * inv.participacion / 100; return { ...inv, dist, corr, pend: corr - dist } })
 
   return (
     <div>
@@ -1297,7 +1298,7 @@ function InversionistasModule({ state, setState }) {
 
   const saveMov = () => {
     const monto = mv.tipo === 'Distribución' || mv.tipo === 'Retiro' ? -Math.abs(+mv.monto) : +mv.monto
-    const upd = investors.map(i => i.id !== sel.id ? i : { ...i, movimientos: [...i.movimientos, { id: 'M' + uid(), ...mv, monto }] })
+    const upd = investors.map(i => i.id !== sel.id ? i : { ...i, movimientos: [...(i.movimientos || []), { id: 'M' + uid(), ...mv, monto }] })
     setState(s => ({ ...s, investors: upd }))
     setSel(upd.find(i => i.id === sel.id))
     setShowMov(false); setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
@@ -1308,8 +1309,8 @@ function InversionistasModule({ state, setState }) {
       <SH title="Inversionistas" subtitle={`${investors.length} socios · ${fmt(investors.reduce((a, i) => a + i.capitalAportado, 0))} capital`} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
         {investors.map(inv => {
-          const ap = inv.movimientos.filter(m => m.tipo === 'Aportación').reduce((a, m) => a + m.monto, 0)
-          const di = inv.movimientos.filter(m => m.tipo === 'Distribución' || m.tipo === 'Retiro').reduce((a, m) => a + Math.abs(m.monto), 0)
+          const ap = (inv.movimientos || []).filter(m => m.tipo === 'Aportación').reduce((a, m) => a + m.monto, 0)
+          const di = (inv.movimientos || []).filter(m => m.tipo === 'Distribución' || m.tipo === 'Retiro').reduce((a, m) => a + Math.abs(m.monto), 0)
           const corr = utilidad * inv.participacion / 100
           return (
             <div key={inv.id} onClick={() => setSel(inv)}
@@ -1340,7 +1341,7 @@ function InversionistasModule({ state, setState }) {
             <Badge label={`${sel.participacion}% participación`} color={G} />
             <Btn small onClick={() => setShowMov(true)}>+ Movimiento</Btn>
           </div>
-          {[...sel.movimientos].reverse().map((m, i) => (
+          {[...(sel.movimientos || [])].reverse().map((m, i) => (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', background: i % 2 === 0 ? S2 : 'transparent', borderRadius: 4, marginBottom: 2 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ width: 26, height: 26, borderRadius: '50%', background: m.monto > 0 ? GRN + '22' : RED + '22', border: `1px solid ${m.monto > 0 ? GRN : RED}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: m.monto > 0 ? GRN : RED }}>{m.monto > 0 ? '↑' : '↓'}</div>
@@ -1446,10 +1447,7 @@ export default function App() {
   const [profile, setProfile]     = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [page, setPage]           = useState('dashboard')
-  const [appState, setAppState] = useState({
-  brands: [], models: [], refs: [], watches: [],
-  sales: [], payments: [], contacts: [], suppliers: []
-})
+  const [appState, setAppState]   = useState({ ...DEMO })
 
   useEffect(() => {
     // Check existing session
