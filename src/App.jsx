@@ -71,78 +71,10 @@ const statusColor = s => ({ Disponible: GRN, Vendido: TM, Consignado: BLU, Reser
 //  DEMO DATA (reemplaza con llamadas a Supabase cuando conectes la DB completa)
 // ══════════════════════════════════════════════════════════════════════════════
 const DEMO = {
-  brands: [
-    { id: 'B001', name: 'Rolex',            country: 'Suiza',  founded: 1905 },
-    { id: 'B002', name: 'Patek Philippe',   country: 'Suiza',  founded: 1839 },
-    { id: 'B003', name: 'Audemars Piguet',  country: 'Suiza',  founded: 1875 },
-    { id: 'B004', name: 'Omega',            country: 'Suiza',  founded: 1848 },
-  ],
-  models: [
-    { id: 'M001', brandId: 'B001', name: 'Submariner',  family: 'Sport' },
-    { id: 'M002', brandId: 'B001', name: 'Datejust',    family: 'Dress' },
-    { id: 'M003', brandId: 'B001', name: 'GMT-Master II', family: 'Sport' },
-    { id: 'M004', brandId: 'B002', name: 'Nautilus',    family: 'Sport-Luxury' },
-    { id: 'M005', brandId: 'B003', name: 'Royal Oak',   family: 'Sport-Luxury' },
-    { id: 'M006', brandId: 'B004', name: 'Speedmaster', family: 'Sport' },
-  ],
-  refs: [
-    { id: 'R001', modelId: 'M001', ref: '126610LN',              caliber: '3235',       material: 'Acero', bezel: 'Cerámica negra', dial: 'Negro',    size: '41mm' },
-    { id: 'R002', modelId: 'M002', ref: '126334',                caliber: '3235',       material: 'Acero', bezel: 'Fluted',         dial: 'Plateado', size: '41mm' },
-    { id: 'R003', modelId: 'M004', ref: '5711/1A-014',           caliber: '26-330 S C', material: 'Acero', bezel: 'Acero',          dial: 'Azul',     size: '40mm' },
-    { id: 'R004', modelId: 'M005', ref: '15500ST.OO.1220ST.01',  caliber: '4302',       material: 'Acero', bezel: 'Integrado',      dial: 'Azul',     size: '41mm' },
-    { id: 'R005', modelId: 'M006', ref: '310.30.42.50.01.001',   caliber: '3861',       material: 'Acero', bezel: 'Taquímetro',     dial: 'Negro',    size: '42mm' },
-  ],
-  watches: [
-    { id: 'W001', refId: 'R001', serial: '4R9X1234',  supplierId: 'P001', condition: 'Muy Bueno', fullSet: true,  papers: true,  box: true,  cost: 280000,  entryDate: '2025-01-15', status: 'Disponible', stage: 'inventario', validatedBy: 'Director', notes: 'Caja y papeles completos.' },
-    { id: 'W002', refId: 'R003', serial: 'PP44321',   supplierId: 'P002', condition: 'Excelente', fullSet: true,  papers: true,  box: true,  cost: 1850000, entryDate: '2024-11-03', status: 'Vendido',    stage: 'liquidado',  validatedBy: 'Director', notes: 'Pieza completa.' },
-    { id: 'W003', refId: 'R004', serial: 'J88221',    supplierId: 'P003', condition: 'Bueno',     fullSet: false, papers: false, box: false, cost: 680000,  entryDate: '2025-02-01', status: 'Consignado', stage: 'inventario', validatedBy: 'Director', notes: 'Sin papeles.' },
-    { id: 'W004', refId: 'R005', serial: 'OM99312',   supplierId: 'P001', condition: 'Muy Bueno', fullSet: true,  papers: true,  box: true,  cost: 95000,   entryDate: '2025-02-10', status: 'Disponible', stage: 'inventario', validatedBy: 'Director', notes: 'Completo.' },
-    { id: 'OPP1', refId: 'R001', serial: '',          supplierId: 'P001', condition: '',          fullSet: null,  papers: null,  box: null,  cost: 260000,  entryDate: '2025-02-20', status: 'Oportunidad', stage: 'oportunidad', priceAsked: 295000, notes: 'Verificar condición.' },
-  ],
-  sales: [
-    { id: 'S001', watchId: 'W002', clientId: 'C001', saleDate: '2024-12-15', agreedPrice: 2100000, status: 'Liquidado', notes: '',
-      payments: [
-        { id: 'PAY1', date: '2024-12-15', amount: 1500000, method: 'Transferencia', notes: 'Pago inicial' },
-        { id: 'PAY2', date: '2025-01-05', amount: 600000,  method: 'Transferencia', notes: 'Saldo final' },
-      ]
-    },
-    { id: 'S002', watchId: 'W003', clientId: 'C002', saleDate: '2025-02-10', agreedPrice: 950000, status: 'Parcial', notes: 'Pago en 2 partes',
-      payments: [
-        { id: 'PAY3', date: '2025-02-10', amount: 500000, method: 'Transferencia', notes: 'Anticipo 50%' },
-      ]
-    },
-  ],
-  suppliers: [
-    { id: 'P001', name: 'Hernández, Marco',      type: 'Coleccionista', phone: '+52 55 1234 5678', city: 'CDMX',        rating: 5, totalDeals: 8 },
-    { id: 'P002', name: 'Relojes del Centro',     type: 'Dealer',        phone: '+52 33 9876 5432', city: 'Guadalajara', rating: 4, totalDeals: 3 },
-    { id: 'P003', name: 'Ruiz, Patricia',         type: 'Particular',    phone: '+52 81 5555 1212', city: 'Monterrey',   rating: 3, totalDeals: 1 },
-    { id: 'P004', name: 'Casa de Empeño Reforma', type: 'Casa de Empeño',phone: '+52 55 3333 4444', city: 'CDMX',        rating: 4, totalDeals: 5 },
-  ],
-  clients: [
-    { id: 'C001', name: 'Álvarez, Roberto', phone: '+52 55 8888 7777', city: 'CDMX',        tier: 'VIP',       totalSpent: 2100000, totalPurchases: 1 },
-    { id: 'C002', name: 'Torres, Daniela',  phone: '+52 33 7777 6666', city: 'Guadalajara', tier: 'Regular',   totalSpent: 0,       totalPurchases: 0 },
-    { id: 'C003', name: 'González, Felipe', phone: '+52 81 6666 5555', city: 'Monterrey',   tier: 'Prospecto', totalSpent: 0,       totalPurchases: 0 },
-  ],
-  investors: [
-    { id: 'I001', name: 'Garza, Andrés', capitalAportado: 500000, participacion: 40, contacto: 'a.garza@invest.mx',
-      movimientos: [
-        { id: 'm1', fecha: '2024-10-01', tipo: 'Aportación',   monto: 300000,  concepto: 'Capital inicial' },
-        { id: 'm2', fecha: '2024-12-01', tipo: 'Aportación',   monto: 200000,  concepto: '2a aportación' },
-        { id: 'm3', fecha: '2025-01-20', tipo: 'Distribución', monto: -48000,  concepto: 'Utilidad Q4 2024' },
-      ]},
-    { id: 'I002', name: 'Ríos, Camila', capitalAportado: 350000, participacion: 28, contacto: 'c.rios@gmail.com',
-      movimientos: [
-        { id: 'm4', fecha: '2024-10-15', tipo: 'Aportación',   monto: 350000,  concepto: 'Capital inicial' },
-        { id: 'm5', fecha: '2025-01-20', tipo: 'Distribución', monto: -33600,  concepto: 'Utilidad Q4 2024' },
-      ]},
-    { id: 'I003', name: 'Morales, Diego', capitalAportado: 400000, participacion: 32, contacto: 'd.morales@biz.mx',
-      movimientos: [
-        { id: 'm6', fecha: '2024-11-01', tipo: 'Aportación',   monto: 400000,  concepto: 'Capital inicial' },
-        { id: 'm7', fecha: '2025-01-20', tipo: 'Distribución', monto: -38400,  concepto: 'Utilidad Q4 2024' },
-      ]},
-  ],
+  brands: [], models: [], refs: [], watches: [],
+  sales: [], payments: [], contacts: [], suppliers: [],
+  clients: [], investors: []
 }
-
 // ══════════════════════════════════════════════════════════════════════════════
 //  UI ATOMS
 // ══════════════════════════════════════════════════════════════════════════════
