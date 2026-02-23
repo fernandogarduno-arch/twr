@@ -109,343 +109,6 @@ function KPI({ label, value, sub, accent = G }) {
       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>{label}</div>
       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, color: TX, fontWeight: 500, lineHeight: 1 }}>{value}</div>
       {sub && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginTop: 5 }}>{sub}</div>}
-      {tab === 'costos' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-            <Btn onClick={() => {
-              const nombre = window.prompt('Nombre del tipo de costo:')
-              if (nombre) setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), { id: 'TC' + uid(), nombre, icono: '📋' }] }))
-            }}>+ Nuevo Tipo</Btn>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-            {(state.tiposCosto || []).map(t => (
-              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>{t.icono}</span>
-                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Btn({ children, onClick, variant = 'primary', small, disabled, full, type = 'button' }) {
-  const vs = {
-    primary:   { background: G,   color: BG,  border: 'none' },
-    secondary: { background: 'transparent', color: TM,  border: `1px solid ${BR}` },
-    danger:    { background: RED + '22', color: RED, border: `1px solid ${RED}44` },
-    ghost:     { background: 'transparent', color: G,   border: `1px solid ${BRG}` },
-  }
-  return (
-    <button type={type} onClick={!disabled ? onClick : undefined}
-      style={{ ...vs[variant], padding: small ? '6px 13px' : '9px 20px', fontSize: small ? 11 : 13, fontFamily: "'Jost', sans-serif", fontWeight: 500, letterSpacing: '.06em', cursor: disabled ? 'not-allowed' : 'pointer', borderRadius: 3, opacity: disabled ? .45 : 1, width: full ? '100%' : 'auto' }}>
-      {children}
-    </button>
-  )
-}
-
-function Modal({ title, children, onClose, width = 640 }) {
-  return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.84)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, width: '100%', maxWidth: width, maxHeight: '92vh', overflow: 'auto', animation: 'fi .25s ease' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: `1px solid ${BR}` }}>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: TX }}>{title}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TM, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
-        </div>
-        <div style={{ padding: 22 }}>{children}</div>
-      </div>
-    </div>
-  )
-}
-
-function FR({ children, cols = 2, gap = 14 }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap, marginBottom: 14 }}>{children}</div>
-}
-
-function Field({ label, children, required }) {
-  return (
-    <div>
-      <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-        {label}{required && <span style={{ color: RED }}> *</span>}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-function SH({ title, subtitle, action, onAction }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 }}>
-      <div>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, color: TX, fontWeight: 400 }}>{title}</div>
-        {subtitle && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginTop: 3, letterSpacing: '.06em' }}>{subtitle}</div>}
-      </div>
-      {action && <Btn onClick={onAction}>{action}</Btn>}
-    </div>
-  )
-}
-
-function Divider({ label }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px' }}>
-      <div style={{ flex: 1, height: 1, background: BR }} />
-      {label && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em' }}>{label}</span>}
-      <div style={{ flex: 1, height: 1, background: BR }} />
-    </div>
-  )
-}
-
-function InfoRow({ label, value, color }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${BR}` }}>
-      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{label}</span>
-      <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: color || TX, fontWeight: color ? 500 : 400 }}>{value}</span>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  AUTH SCREEN
-// ══════════════════════════════════════════════════════════════════════════════
-function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState('login')
-  const [form, setForm] = useState({ email: '', password: '', name: '', confirm: '' })
-  const [err, setErr] = useState('')
-  const [loading, setLoading] = useState(false)
-  const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
-
-  const handleLogin = async () => {
-    setErr(''); setLoading(true)
-    const { data, error } = await sb.auth.signInWithPassword({ email: form.email, password: form.password })
-    if (error) { setErr(error.message); setLoading(false); return }
-    const { data: profile } = await sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
-    onAuth(data.user, profile)
-    setLoading(false)
-  }
-
-  const handleRegister = async () => {
-    setErr('')
-    if (form.password !== form.confirm) { setErr('Las contraseñas no coinciden'); return }
-    if (form.password.length < 8) { setErr('Mínimo 8 caracteres'); return }
-    setLoading(true)
-    const { data, error } = await sb.auth.signUp({ email: form.email, password: form.password })
-    if (error) { setErr(error.message); setLoading(false); return }
-    if (data.user) {
-      await sb.from('profiles').upsert({ id: data.user.id, name: form.name, email: form.email, role: 'pending', active: true })
-    }
-    setMode('login')
-    setForm(p => ({ ...p, password: '', confirm: '' }))
-    alert('Cuenta creada. El Director asignará tu rol para acceder al sistema.')
-    setLoading(false)
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
-      <div style={{ width: '100%', maxWidth: 420, padding: 16 }}>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 32, color: G, letterSpacing: '.1em' }}>The Wrist Room</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.25em', marginTop: 6 }}>TWR OPERATING SYSTEM</div>
-        </div>
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, padding: 28 }}>
-          <div style={{ display: 'flex', marginBottom: 24, borderBottom: `1px solid ${BR}` }}>
-            {[['login', 'Iniciar Sesión'], ['register', 'Crear Cuenta']].map(([id, label]) => (
-              <button key={id} onClick={() => setMode(id)}
-                style={{ flex: 1, padding: '9px 0', background: 'none', border: 'none', borderBottom: mode === id ? `2px solid ${G}` : '2px solid transparent', color: mode === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {mode === 'login' && (
-            <div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>Correo</label>
-                <input type="email" value={form.email} onChange={f('email')} placeholder="tu@correo.mx"
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
-              </div>
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>Contraseña</label>
-                <input type="password" value={form.password} onChange={f('password')} placeholder="••••••••"
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
-              </div>
-              {err && <div style={{ background: RED + '11', border: `1px solid ${RED}33`, borderRadius: 4, padding: '8px 12px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: RED, marginBottom: 14 }}>{err}</div>}
-              <Btn onClick={handleLogin} full disabled={loading || !form.email || !form.password}>{loading ? 'Verificando...' : 'Entrar'}</Btn>
-            </div>
-          )}
-
-          {mode === 'register' && (
-            <div>
-              {[['name', 'Nombre completo', 'text', 'Nombre Apellido'], ['email', 'Correo', 'email', 'tu@correo.mx']].map(([k, l, t, ph]) => (
-                <div key={k} style={{ marginBottom: 14 }}>
-                  <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>{l}</label>
-                  <input type={t} value={form[k]} onChange={f(k)} placeholder={ph}
-                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
-                </div>
-              ))}
-              <FR>
-                <Field label="Contraseña"><input type="password" value={form.password} onChange={f('password')} placeholder="Mín. 8 chars"
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} /></Field>
-                <Field label="Confirmar"><input type="password" value={form.confirm} onChange={f('confirm')} placeholder="Repetir"
-                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} /></Field>
-              </FR>
-              {err && <div style={{ background: RED + '11', border: `1px solid ${RED}33`, borderRadius: 4, padding: '8px 12px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: RED, marginBottom: 14 }}>{err}</div>}
-              <div style={{ background: S3, borderRadius: 4, padding: '8px 12px', marginBottom: 14, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
-                Tu cuenta quedará pendiente hasta que el Director asigne tu rol.
-              </div>
-              <Btn onClick={handleRegister} full disabled={loading || !form.email || !form.password || !form.name}>{loading ? 'Creando...' : 'Crear Cuenta'}</Btn>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  PENDING SCREEN
-// ══════════════════════════════════════════════════════════════════════════════
-function PendingScreen({ user, onLogout }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
-      <div style={{ textAlign: 'center', padding: 32 }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: G, marginBottom: 16 }}>The Wrist Room</div>
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, padding: 32, maxWidth: 420 }}>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: TM + '22', border: `1px solid ${TM}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 22 }}>⏳</div>
-          <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 16, color: TX, marginBottom: 8 }}>Cuenta pendiente de activación</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginBottom: 24, lineHeight: 1.6 }}>Tu cuenta fue creada. El Director del sistema asignará tu rol de acceso en breve.</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginBottom: 20 }}>{user.email}</div>
-          <Btn variant="secondary" onClick={onLogout} full>Cerrar Sesión</Btn>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ADMIN MODULE
-// ══════════════════════════════════════════════════════════════════════════════
-function AdminModule({ currentUser }) {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const loadUsers = useCallback(async () => {
-    setLoading(true)
-    const { data } = await sb.from('profiles').select('*').order('created_at', { ascending: false })
-    setUsers(data || [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { loadUsers() }, [loadUsers])
-
-  const saveRole = async (userId, role, active) => {
-    setSaving(true)
-    await sb.from('profiles').update({ role, active }).eq('id', userId)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, role, active } : x))
-    setEditing(null)
-    setSaving(false)
-  }
-
-  const pending = users.filter(u => u.role === 'pending').length
-  const filtered = users.filter(u => !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase()))
-
-  return (
-    <div>
-      <SH title="Administración" subtitle={`${users.length} usuarios registrados`} />
-
-      {pending > 0 && (
-        <div style={{ background: G + '11', border: `1px solid ${G}33`, borderRadius: 6, padding: '12px 16px', marginBottom: 18 }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>⚠ {pending} usuario{pending > 1 ? 's' : ''} pendiente{pending > 1 ? 's' : ''} de asignación de rol</span>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
-        <KPI label="Total Usuarios" value={users.length} accent={BLU} />
-        <KPI label="Pendientes" value={pending} accent={pending > 0 ? G : TM} />
-        <KPI label="Activos" value={users.filter(u => u.active && u.role !== 'pending').length} accent={GRN} />
-        <KPI label="Roles Asignados" value={users.filter(u => u.role !== 'pending').length} accent={TM} />
-      </div>
-
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <input placeholder="Buscar usuario..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 320, background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, outline: 'none' }} />
-        <button onClick={loadUsers} style={{ background: S2, border: `1px solid ${BR}`, color: TM, padding: '8px 16px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 10, cursor: 'pointer', letterSpacing: '.08em' }}>↻ ACTUALIZAR</button>
-      </div>
-
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${BR}` }}>
-              {['Nombre', 'Email', 'Rol', 'Estado', 'Registro', 'Acciones'].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando...</td></tr>
-            ) : filtered.map(u => (
-              <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
-                onMouseEnter={e => e.currentTarget.style.background = S2}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '12px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>
-                  {u.name || '—'}
-                  {u.id === currentUser.id && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: G, marginLeft: 6 }}>(tú)</span>}
-                </td>
-                <td style={{ padding: '12px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
-                <td style={{ padding: '12px 16px' }}><Badge label={ROLES[u.role]?.label || u.role} color={ROLES[u.role]?.color || TM} small /></td>
-                <td style={{ padding: '12px 16px' }}><Badge label={u.active ? 'Activo' : 'Inactivo'} color={u.active ? GRN : RED} small /></td>
-                <td style={{ padding: '12px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>{u.created_at ? new Date(u.created_at).toLocaleDateString('es-MX') : '—'}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  {u.id !== currentUser.id ? (
-                    <button onClick={() => setEditing({ ...u })} style={{ background: 'none', border: `1px solid ${BR}`, color: TM, padding: '4px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>EDITAR</button>
-                  ) : <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>—</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {editing && (
-        <Modal title={`Editar: ${editing.name || editing.email}`} onClose={() => setEditing(null)} width={480}>
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 4 }}>EMAIL</div>
-            <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{editing.email}</div>
-          </div>
-          <Divider label="ROL DE ACCESO" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-            {Object.entries(ROLES).filter(([k]) => k !== 'pending').map(([key, cfg]) => (
-              <div key={key} onClick={() => setEditing(e => ({ ...e, role: key }))}
-                style={{ background: editing.role === key ? cfg.color + '22' : S3, border: `1px solid ${editing.role === key ? cfg.color : BR}`, borderRadius: 6, padding: '12px 14px', cursor: 'pointer' }}>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: editing.role === key ? cfg.color : TM, letterSpacing: '.08em' }}>{cfg.label.toUpperCase()}</div>
-                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 11, color: TD, marginTop: 4 }}>
-                  {key === 'director' ? 'Acceso total' : key === 'operador' ? 'Operaciones diarias' : 'Solo cuenta propia'}
-                </div>
-              </div>
-            ))}
-          </div>
-          <Divider label="ESTADO" />
-          <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
-            {[['true', 'Activo', GRN], ['false', 'Inactivo', RED]].map(([val, label, color]) => (
-              <div key={val} onClick={() => setEditing(e => ({ ...e, active: val === 'true' }))}
-                style={{ flex: 1, background: String(editing.active) === val ? color + '22' : S3, border: `1px solid ${String(editing.active) === val ? color : BR}`, borderRadius: 6, padding: '10px 14px', cursor: 'pointer', textAlign: 'center' }}>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: String(editing.active) === val ? color : TM }}>{label}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn variant="secondary" small onClick={() => setEditing(null)}>Cancelar</Btn>
-            <Btn small onClick={() => saveRole(editing.id, editing.role, editing.active)} disabled={saving}>{saving ? 'Guardando...' : 'Guardar Cambios'}</Btn>
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }
@@ -1457,6 +1120,343 @@ function CatalogosModule({ state, setState }) {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" small onClick={() => setShowRefForm(false)}>Cancelar</Btn>
             <Btn small onClick={saveRef} disabled={!rf.modelId || !rf.ref}>Guardar</Btn>
+          </div>
+        </Modal>
+      )}
+      {tab === 'costos' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+            <Btn onClick={() => {
+              const nombre = window.prompt('Nombre del tipo de costo:')
+              if (nombre) setState(s => ({ ...s, tiposCosto: [...(s.tiposCosto || []), { id: 'TC' + uid(), nombre, icono: '📋' }] }))
+            }}>+ Nuevo Tipo</Btn>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            {(state.tiposCosto || []).map(t => (
+              <div key={t.id} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>{t.icono}</span>
+                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{t.nombre}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Btn({ children, onClick, variant = 'primary', small, disabled, full, type = 'button' }) {
+  const vs = {
+    primary:   { background: G,   color: BG,  border: 'none' },
+    secondary: { background: 'transparent', color: TM,  border: `1px solid ${BR}` },
+    danger:    { background: RED + '22', color: RED, border: `1px solid ${RED}44` },
+    ghost:     { background: 'transparent', color: G,   border: `1px solid ${BRG}` },
+  }
+  return (
+    <button type={type} onClick={!disabled ? onClick : undefined}
+      style={{ ...vs[variant], padding: small ? '6px 13px' : '9px 20px', fontSize: small ? 11 : 13, fontFamily: "'Jost', sans-serif", fontWeight: 500, letterSpacing: '.06em', cursor: disabled ? 'not-allowed' : 'pointer', borderRadius: 3, opacity: disabled ? .45 : 1, width: full ? '100%' : 'auto' }}>
+      {children}
+    </button>
+  )
+}
+
+function Modal({ title, children, onClose, width = 640 }) {
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.84)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, width: '100%', maxWidth: width, maxHeight: '92vh', overflow: 'auto', animation: 'fi .25s ease' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: `1px solid ${BR}` }}>
+          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: TX }}>{title}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TM, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 22 }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function FR({ children, cols = 2, gap = 14 }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap, marginBottom: 14 }}>{children}</div>
+}
+
+function Field({ label, children, required }) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+        {label}{required && <span style={{ color: RED }}> *</span>}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+function SH({ title, subtitle, action, onAction }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 }}>
+      <div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, color: TX, fontWeight: 400 }}>{title}</div>
+        {subtitle && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginTop: 3, letterSpacing: '.06em' }}>{subtitle}</div>}
+      </div>
+      {action && <Btn onClick={onAction}>{action}</Btn>}
+    </div>
+  )
+}
+
+function Divider({ label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 14px' }}>
+      <div style={{ flex: 1, height: 1, background: BR }} />
+      {label && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em' }}>{label}</span>}
+      <div style={{ flex: 1, height: 1, background: BR }} />
+    </div>
+  )
+}
+
+function InfoRow({ label, value, color }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${BR}` }}>
+      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{label}</span>
+      <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: color || TX, fontWeight: color ? 500 : 400 }}>{value}</span>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  AUTH SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState('login')
+  const [form, setForm] = useState({ email: '', password: '', name: '', confirm: '' })
+  const [err, setErr] = useState('')
+  const [loading, setLoading] = useState(false)
+  const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
+
+  const handleLogin = async () => {
+    setErr(''); setLoading(true)
+    const { data, error } = await sb.auth.signInWithPassword({ email: form.email, password: form.password })
+    if (error) { setErr(error.message); setLoading(false); return }
+    const { data: profile } = await sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
+    onAuth(data.user, profile)
+    setLoading(false)
+  }
+
+  const handleRegister = async () => {
+    setErr('')
+    if (form.password !== form.confirm) { setErr('Las contraseñas no coinciden'); return }
+    if (form.password.length < 8) { setErr('Mínimo 8 caracteres'); return }
+    setLoading(true)
+    const { data, error } = await sb.auth.signUp({ email: form.email, password: form.password })
+    if (error) { setErr(error.message); setLoading(false); return }
+    if (data.user) {
+      await sb.from('profiles').upsert({ id: data.user.id, name: form.name, email: form.email, role: 'pending', active: true })
+    }
+    setMode('login')
+    setForm(p => ({ ...p, password: '', confirm: '' }))
+    alert('Cuenta creada. El Director asignará tu rol para acceder al sistema.')
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
+      <div style={{ width: '100%', maxWidth: 420, padding: 16 }}>
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 32, color: G, letterSpacing: '.1em' }}>The Wrist Room</div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.25em', marginTop: 6 }}>TWR OPERATING SYSTEM</div>
+        </div>
+        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, padding: 28 }}>
+          <div style={{ display: 'flex', marginBottom: 24, borderBottom: `1px solid ${BR}` }}>
+            {[['login', 'Iniciar Sesión'], ['register', 'Crear Cuenta']].map(([id, label]) => (
+              <button key={id} onClick={() => setMode(id)}
+                style={{ flex: 1, padding: '9px 0', background: 'none', border: 'none', borderBottom: mode === id ? `2px solid ${G}` : '2px solid transparent', color: mode === id ? G : TM, fontFamily: "'Jost', sans-serif", fontSize: 12, cursor: 'pointer', letterSpacing: '.06em' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'login' && (
+            <div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>Correo</label>
+                <input type="email" value={form.email} onChange={f('email')} placeholder="tu@correo.mx"
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>Contraseña</label>
+                <input type="password" value={form.password} onChange={f('password')} placeholder="••••••••"
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
+              </div>
+              {err && <div style={{ background: RED + '11', border: `1px solid ${RED}33`, borderRadius: 4, padding: '8px 12px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: RED, marginBottom: 14 }}>{err}</div>}
+              <Btn onClick={handleLogin} full disabled={loading || !form.email || !form.password}>{loading ? 'Verificando...' : 'Entrar'}</Btn>
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <div>
+              {[['name', 'Nombre completo', 'text', 'Nombre Apellido'], ['email', 'Correo', 'email', 'tu@correo.mx']].map(([k, l, t, ph]) => (
+                <div key={k} style={{ marginBottom: 14 }}>
+                  <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 6 }}>{l}</label>
+                  <input type={t} value={form[k]} onChange={f(k)} placeholder={ph}
+                    style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} />
+                </div>
+              ))}
+              <FR>
+                <Field label="Contraseña"><input type="password" value={form.password} onChange={f('password')} placeholder="Mín. 8 chars"
+                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} /></Field>
+                <Field label="Confirmar"><input type="password" value={form.confirm} onChange={f('confirm')} placeholder="Repetir"
+                  style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }} /></Field>
+              </FR>
+              {err && <div style={{ background: RED + '11', border: `1px solid ${RED}33`, borderRadius: 4, padding: '8px 12px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: RED, marginBottom: 14 }}>{err}</div>}
+              <div style={{ background: S3, borderRadius: 4, padding: '8px 12px', marginBottom: 14, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
+                Tu cuenta quedará pendiente hasta que el Director asigne tu rol.
+              </div>
+              <Btn onClick={handleRegister} full disabled={loading || !form.email || !form.password || !form.name}>{loading ? 'Creando...' : 'Crear Cuenta'}</Btn>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PENDING SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function PendingScreen({ user, onLogout }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG }}>
+      <div style={{ textAlign: 'center', padding: 32 }}>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: G, marginBottom: 16 }}>The Wrist Room</div>
+        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 8, padding: 32, maxWidth: 420 }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: TM + '22', border: `1px solid ${TM}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 22 }}>⏳</div>
+          <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 16, color: TX, marginBottom: 8 }}>Cuenta pendiente de activación</div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginBottom: 24, lineHeight: 1.6 }}>Tu cuenta fue creada. El Director del sistema asignará tu rol de acceso en breve.</div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, marginBottom: 20 }}>{user.email}</div>
+          <Btn variant="secondary" onClick={onLogout} full>Cerrar Sesión</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ADMIN MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+function AdminModule({ currentUser }) {
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true)
+    const { data } = await sb.from('profiles').select('*').order('created_at', { ascending: false })
+    setUsers(data || [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { loadUsers() }, [loadUsers])
+
+  const saveRole = async (userId, role, active) => {
+    setSaving(true)
+    await sb.from('profiles').update({ role, active }).eq('id', userId)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, role, active } : x))
+    setEditing(null)
+    setSaving(false)
+  }
+
+  const pending = users.filter(u => u.role === 'pending').length
+  const filtered = users.filter(u => !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <div>
+      <SH title="Administración" subtitle={`${users.length} usuarios registrados`} />
+
+      {pending > 0 && (
+        <div style={{ background: G + '11', border: `1px solid ${G}33`, borderRadius: 6, padding: '12px 16px', marginBottom: 18 }}>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>⚠ {pending} usuario{pending > 1 ? 's' : ''} pendiente{pending > 1 ? 's' : ''} de asignación de rol</span>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
+        <KPI label="Total Usuarios" value={users.length} accent={BLU} />
+        <KPI label="Pendientes" value={pending} accent={pending > 0 ? G : TM} />
+        <KPI label="Activos" value={users.filter(u => u.active && u.role !== 'pending').length} accent={GRN} />
+        <KPI label="Roles Asignados" value={users.filter(u => u.role !== 'pending').length} accent={TM} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+        <input placeholder="Buscar usuario..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 320, background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, outline: 'none' }} />
+        <button onClick={loadUsers} style={{ background: S2, border: `1px solid ${BR}`, color: TM, padding: '8px 16px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 10, cursor: 'pointer', letterSpacing: '.08em' }}>↻ ACTUALIZAR</button>
+      </div>
+
+      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${BR}` }}>
+              {['Nombre', 'Email', 'Rol', 'Estado', 'Registro', 'Acciones'].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando...</td></tr>
+            ) : filtered.map(u => (
+              <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
+                onMouseEnter={e => e.currentTarget.style.background = S2}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <td style={{ padding: '12px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>
+                  {u.name || '—'}
+                  {u.id === currentUser.id && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: G, marginLeft: 6 }}>(tú)</span>}
+                </td>
+                <td style={{ padding: '12px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
+                <td style={{ padding: '12px 16px' }}><Badge label={ROLES[u.role]?.label || u.role} color={ROLES[u.role]?.color || TM} small /></td>
+                <td style={{ padding: '12px 16px' }}><Badge label={u.active ? 'Activo' : 'Inactivo'} color={u.active ? GRN : RED} small /></td>
+                <td style={{ padding: '12px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>{u.created_at ? new Date(u.created_at).toLocaleDateString('es-MX') : '—'}</td>
+                <td style={{ padding: '12px 16px' }}>
+                  {u.id !== currentUser.id ? (
+                    <button onClick={() => setEditing({ ...u })} style={{ background: 'none', border: `1px solid ${BR}`, color: TM, padding: '4px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>EDITAR</button>
+                  ) : <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {editing && (
+        <Modal title={`Editar: ${editing.name || editing.email}`} onClose={() => setEditing(null)} width={480}>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 4 }}>EMAIL</div>
+            <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{editing.email}</div>
+          </div>
+          <Divider label="ROL DE ACCESO" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+            {Object.entries(ROLES).filter(([k]) => k !== 'pending').map(([key, cfg]) => (
+              <div key={key} onClick={() => setEditing(e => ({ ...e, role: key }))}
+                style={{ background: editing.role === key ? cfg.color + '22' : S3, border: `1px solid ${editing.role === key ? cfg.color : BR}`, borderRadius: 6, padding: '12px 14px', cursor: 'pointer' }}>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: editing.role === key ? cfg.color : TM, letterSpacing: '.08em' }}>{cfg.label.toUpperCase()}</div>
+                <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 11, color: TD, marginTop: 4 }}>
+                  {key === 'director' ? 'Acceso total' : key === 'operador' ? 'Operaciones diarias' : 'Solo cuenta propia'}
+                </div>
+              </div>
+            ))}
+          </div>
+          <Divider label="ESTADO" />
+          <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+            {[['true', 'Activo', GRN], ['false', 'Inactivo', RED]].map(([val, label, color]) => (
+              <div key={val} onClick={() => setEditing(e => ({ ...e, active: val === 'true' }))}
+                style={{ flex: 1, background: String(editing.active) === val ? color + '22' : S3, border: `1px solid ${String(editing.active) === val ? color : BR}`, borderRadius: 6, padding: '10px 14px', cursor: 'pointer', textAlign: 'center' }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: String(editing.active) === val ? color : TM }}>{label}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" small onClick={() => setEditing(null)}>Cancelar</Btn>
+            <Btn small onClick={() => saveRole(editing.id, editing.role, editing.active)} disabled={saving}>{saving ? 'Guardando...' : 'Guardar Cambios'}</Btn>
           </div>
         </Modal>
       )}
