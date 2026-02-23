@@ -18,22 +18,22 @@ const sb = createClient(
 )
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  DESIGN TOKENS
+//  DESIGN TOKENS — The Wrist Room Navy Theme
 // ══════════════════════════════════════════════════════════════════════════════
-const G   = '#C9A96E'
-const BG  = '#080808'
-const S1  = '#111111'
-const S2  = '#181818'
-const S3  = '#222222'
-const BR  = '#2A2A2A'
-const BRG = '#3A3020'
-const TX  = '#E8E2D5'
-const TM  = '#888880'
-const TD  = '#555550'
-const RED = '#C0392B'
-const GRN = '#27AE60'
-const BLU = '#2E86AB'
-const PRP = '#9B59B6'
+const G   = '#C9A96E'  // Gold accent (hallmark brand)
+const BG  = '#071829'  // Near-black navy (deepest layer)
+const S1  = '#0C2238'  // Dark navy (sidebar, main surface)
+const S2  = '#0F2B46'  // Card / panel
+const S3  = '#144058'  // Elevated input / table header
+const BR  = '#1C3D58'  // Border subtle
+const BRG = '#2A5272'  // Border accent / focused
+const TX  = '#F0EDE7'  // Warm white (matches logo text)
+const TM  = '#7BA0BA'  // Muted navy-blue label text
+const TD  = '#4A6E88'  // Dim/placeholder text
+const RED = '#E05A5A'  // Error / danger
+const GRN = '#2ECC71'  // Success / active
+const BLU = '#4AADE6'  // Info / Operador badge
+const PRP = '#A478C8'  // Oportunidad / Inversionista badge
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  ROLE CONFIG
@@ -102,7 +102,7 @@ const db = {
       id: brand.id, name: brand.name, country: brand.country,
       founded: brand.founded || null, notes: brand.notes || null
     })
-    if (error) console.error('saveBrand:', error)
+    if (error) throw new Error(error.message)
   },
 
   // MODELOS
@@ -111,7 +111,7 @@ const db = {
       id: model.id, brand_id: model.brandId, name: model.name,
       family: model.family || null, notes: model.notes || null
     })
-    if (error) console.error('saveModel:', error)
+    if (error) throw new Error(error.message)
   },
 
   // REFERENCIAS
@@ -123,7 +123,7 @@ const db = {
       size: ref.size || null, bracelet: ref.bracelet || null,
       year: ref.year || null, notes: ref.notes || null
     })
-    if (error) console.error('saveRef:', error)
+    if (error) throw new Error(error.message)
   },
 
   // PROVEEDORES
@@ -133,7 +133,7 @@ const db = {
       email: s.email || null, city: s.city || null, notes: s.notes || null,
       rating: s.rating || 3, total_deals: s.totalDeals || 0
     })
-    if (error) console.error('saveSupplier:', error)
+    if (error) throw new Error(error.message)
   },
 
   // CLIENTES
@@ -143,7 +143,7 @@ const db = {
       city: c.city || null, tier: c.tier || 'Prospecto', notes: c.notes || null,
       total_spent: c.totalSpent || 0, total_purchases: c.totalPurchases || 0
     })
-    if (error) console.error('saveClient:', error)
+    if (error) throw new Error(error.message)
   },
 
   // PIEZAS
@@ -160,7 +160,7 @@ const db = {
       socio_aporta_id: w.socioAportaId || null,
       split_personalizado: w.splitPersonalizado || null
     })
-    if (error) console.error('saveWatch:', error)
+    if (error) throw new Error(error.message)
   },
 
   // COSTO DE PIEZA
@@ -170,7 +170,7 @@ const db = {
       fecha: c.fecha || null, monto: c.monto,
       descripcion: c.descripcion || null
     })
-    if (error) console.error('saveCosto:', error)
+    if (error) throw new Error(error.message)
   },
 
   // VENTAS
@@ -180,12 +180,12 @@ const db = {
       sale_date: v.saleDate, agreed_price: v.agreedPrice,
       status: v.status, notes: v.notes || null
     })
-    if (error) console.error('saveVenta:', error)
+    if (error) throw new Error(error.message)
   },
 
   async updateVentaStatus(id, status) {
     const { error } = await sb.from('ventas').update({ status }).eq('id', id)
-    if (error) console.error('updateVentaStatus:', error)
+    if (error) throw new Error(error.message)
   },
 
   // PAGOS
@@ -194,7 +194,7 @@ const db = {
       id: p.id, venta_id: p.ventaId, date: p.date,
       amount: p.amount, method: p.method, notes: p.notes || null
     })
-    if (error) console.error('savePago:', error)
+    if (error) throw new Error(error.message)
   },
 
   // SOCIOS
@@ -203,7 +203,7 @@ const db = {
       id: s.id, name: s.name, participacion: s.participacion,
       color: s.color, activo: s.activo
     })
-    if (error) console.error('saveSocio:', error)
+    if (error) throw new Error(error.message)
   },
 
   // MOVIMIENTO SOCIO
@@ -212,7 +212,7 @@ const db = {
       id: m.id, socio_id: m.socioId, fecha: m.fecha,
       tipo: m.tipo, monto: m.monto, concepto: m.concepto || null
     })
-    if (error) console.error('saveMovimientoSocio:', error)
+    if (error) throw new Error(error.message)
   },
 
   // TIPOS DE COSTO
@@ -220,13 +220,13 @@ const db = {
     const { error } = await sb.from('tipos_costo').upsert({
       id: t.id, nombre: t.nombre, icono: t.icono || '📋'
     })
-    if (error) console.error('saveTipoCosto:', error)
+    if (error) throw new Error(error.message)
   },
 
   // ACTUALIZAR ESTADO DE PIEZA
   async updateWatchStage(id, stage, status, extra = {}) {
     const { error } = await sb.from('piezas').update({ stage, status, ...extra }).eq('id', id)
-    if (error) console.error('updateWatchStage:', error)
+    if (error) throw new Error(error.message)
   },
 
   // ACTUALIZAR CLIENTE stats
@@ -234,21 +234,35 @@ const db = {
     const { error } = await sb.from('clientes').update({
       total_spent: spent, total_purchases: purchases
     }).eq('id', clientId)
-    if (error) console.error('updateClientStats:', error)
+    if (error) throw new Error(error.message)
   },
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  QUICK CREATE — inline mini-modal para crear sin salir del flujo
 // ══════════════════════════════════════════════════════════════════════════════
-function QuickCreate({ title, onClose, children }) {
+function QuickCreate({ title, onClose, children, error, saving }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: S2, border: `1px solid ${BRG}`, borderRadius: 8, padding: 20, width: 420, boxShadow: '0 20px 60px #00000066' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+         onClick={e => e.target === e.currentTarget && !saving && onClose()}>
+      <div style={{ background: S2, border: `1px solid ${BRG}`, borderRadius: 8, padding: 20, width: 420, boxShadow: '0 20px 60px #00000066', animation: 'fi .15s ease' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, letterSpacing: '.15em' }}>CREAR · {title.toUpperCase()}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TM, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+          <button onClick={saving ? undefined : onClose} style={{ background: 'none', border: 'none', color: TM, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 18, lineHeight: 1, opacity: saving ? .4 : 1 }}>×</button>
         </div>
+        {error && (
+          <div style={{ background: '#E05A5A22', border: '1px solid #E05A5A44', borderRadius: 4, padding: '8px 12px', marginBottom: 12,
+                        fontFamily: "'DM Mono', monospace", fontSize: 10, color: '#E05A5A', letterSpacing: '.05em' }}>
+            {error}
+          </div>
+        )}
+        {saving && (
+          <div style={{ background: G + '18', border: `1px solid ${G}44`, borderRadius: 4, padding: '8px 12px', marginBottom: 12,
+                        fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, letterSpacing: '.1em', textAlign: 'center',
+                        animation: 'pulse 1.2s infinite' }}>
+            GUARDANDO...
+          </div>
+        )}
         {children}
       </div>
     </div>
@@ -402,9 +416,9 @@ function Modal({ title, onClose, width = 520, children }) {
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
          onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'#1A1A1A', border:'1px solid #2A2A2A', borderRadius:8, width:'100%', maxWidth:width,
+      <div style={{ background:S2, border:`1px solid ${BR}`, borderRadius:8, width:'100%', maxWidth:width,
                     maxHeight:'90vh', overflowY:'auto', animation:'fi .2s ease' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderBottom:'1px solid #2A2A2A' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderBottom:`1px solid ${BR}` }}>
           <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color: G }}>{title}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color: TD, fontSize:20, cursor:'pointer', lineHeight:1 }}>×</button>
         </div>
@@ -423,8 +437,8 @@ function Btn({ children, onClick, disabled, variant = 'primary', small, style: e
     ...extraStyle
   }
   const variants = {
-    primary:   { background: G,             color: '#111' },
-    secondary: { background: 'transparent', color: TD,  border: '1px solid #2A2A2A' },
+    primary:   { background: G,             color: BG },
+    secondary: { background: 'transparent', color: TD,  border: `1px solid ${BR}` },
     ghost:     { background: 'transparent', color: G,   border: `1px solid ${G}44` },
   }
   return (
@@ -465,9 +479,9 @@ function InfoRow({ label, value, color }) {
 function Divider({ label }) {
   return (
     <div style={{ display:'flex', alignItems:'center', gap:10, margin:'16px 0 8px' }}>
-      <div style={{ flex:1, height:1, background:'#2A2A2A' }} />
+      <div style={{ flex:1, height:1, background: BR }} />
       {label && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color: TD, letterSpacing:'.25em' }}>{label}</div>}
-      <div style={{ flex:1, height:1, background:'#2A2A2A' }} />
+      <div style={{ flex:1, height:1, background: BR }} />
     </div>
   )
 }
@@ -503,7 +517,7 @@ function SH({ title, subtitle, action, onAction }) {
       </div>
       {action && (
         <button onClick={onAction}
-          style={{ padding:'8px 18px', background: G, border:'none', borderRadius:4, color:'#111',
+          style={{ padding:'8px 18px', background: G, border:'none', borderRadius:4, color: BG,
                    fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer',
                    transition:'opacity .2s', whiteSpace:'nowrap' }}
           onMouseOver={e=>e.target.style.opacity='.8'} onMouseOut={e=>e.target.style.opacity='1'}>
@@ -592,7 +606,7 @@ function DonutChart({ slices, size = 120 }) {
   const total = slices.reduce((a, s) => a + s.value, 0) || 1
   return (
     <svg width={size} height={size} viewBox="0 0 120 120">
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1A1A1A" strokeWidth="16" />
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={S1} strokeWidth="16" />
       {slices.map((s, i) => {
         const pct = s.value / total
         const dash = pct * circ
@@ -661,9 +675,22 @@ function DashboardModule({ state }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 30, color: TX, fontWeight: 300 }}>The Wrist Room</div>
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM, marginTop: 3, letterSpacing: '.08em' }}>{new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}</div>
+      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <svg width="36" height="36" viewBox="0 0 80 80" fill="none">
+          <line x1="14" y1="10" x2="32" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="32" y1="58" x2="42" y2="30" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="42" y1="30" x2="52" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="52" y1="58" x2="68" y2="10" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="14" y1="10" x2="24" y2="68" stroke={G} strokeWidth="3" strokeLinecap="round"/>
+          <circle cx="24" cy="70" r="3.5" fill={G}/>
+        </svg>
+        <div>
+          <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+            <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:11, color:TM, letterSpacing:'.35em', textTransform:'uppercase' }}>The</span>
+            <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:28, color:TX, letterSpacing:'.1em', fontWeight:600 }}>Wrist Room</span>
+          </div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginTop: 2, letterSpacing: '.08em' }}>{new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}</div>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -723,7 +750,7 @@ function DashboardModule({ state }) {
                     <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{inv.name.split(',')[0]}</span>
                     <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{inv.participacion}%</span>
                   </div>
-                  <div style={{ background: S3, borderRadius: 2, height: 4, borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ background: S3, borderRadius: 2, height: 4, overflow: 'hidden' }}>
                     <div style={{ background: [G, BLU, GRN, PRP][i % 4], height: '100%', width: `${inv.participacion}%`, transition: 'width .5s ease' }} />
                   </div>
                   <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 3 }}>{fmt(inv.capitalAportado)}</div>
@@ -808,45 +835,124 @@ function InventarioModule({ state, setState }) {
   const [pf, setPf] = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
   const [showAddCosto, setShowAddCosto] = useState(false)
   const [costoForm, setCostoForm] = useState({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
+  const [watchSaving, setWatchSaving] = useState(false)
 
   // Quick create inline
   const [qc, setQc] = useState(null) // 'brand' | 'model' | 'ref' | 'supplier' | 'client'
   const [qf, setQf] = useState({})   // quick-create form fields
+  const [qcError, setQcError]   = useState('')  // inline error message
+  const [qcSaving, setQcSaving] = useState(false)
   const qInput = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10 }
 
   const quickCreate = async (type) => {
+    if (qcSaving) return
+    setQcError('')
+
+    // ── Duplicate check ──────────────────────────────────────────────────────
     if (type === 'brand') {
       if (!qf.name) return
-      const brand = { id: 'B' + uid(), name: qf.name, country: qf.country || 'Suiza', founded: qf.founded || null, notes: '' }
-      setState(s => ({ ...s, brands: [...s.brands, brand] }))
-      setWf(f => ({ ...f, _brandId: brand.id, _modelId: '', refId: '' }))
-      await db.saveBrand(brand)
-    } else if (type === 'model') {
-      if (!qf.name || !wf._brandId) return
-      const model = { id: 'M' + uid(), brandId: wf._brandId, name: qf.name, family: qf.family || '', notes: '' }
-      setState(s => ({ ...s, models: [...s.models, model] }))
-      setWf(f => ({ ...f, _modelId: model.id, refId: '' }))
-      await db.saveModel(model)
-    } else if (type === 'ref') {
-      if (!qf.ref || !wf._modelId) return
-      const ref = { id: 'R' + uid(), modelId: wf._modelId, ref: qf.ref, caliber: qf.caliber || '', material: qf.material || 'Acero', bezel: qf.bezel || '', dial: qf.dial || '', size: qf.size || '', bracelet: '', year: +qf.year || null, notes: '' }
-      setState(s => ({ ...s, refs: [...s.refs, ref] }))
-      setWf(f => ({ ...f, refId: ref.id }))
-      await db.saveRef(ref)
-    } else if (type === 'supplier') {
-      if (!qf.name) return
-      const supplier = { id: 'P' + uid(), name: qf.name, type: qf.type || 'Particular', phone: qf.phone || '', email: '', city: '', notes: '', rating: 3, totalDeals: 0 }
-      setState(s => ({ ...s, suppliers: [...s.suppliers, supplier] }))
-      setWf(f => ({ ...f, supplierId: supplier.id }))
-      await db.saveSupplier(supplier)
-    } else if (type === 'client') {
-      if (!qf.name) return
-      const client = { id: 'C' + uid(), name: qf.name, phone: qf.phone || '', email: '', city: '', tier: 'Prospecto', notes: '', totalSpent: 0, totalPurchases: 0 }
-      setState(s => ({ ...s, clients: [...s.clients, client] }))
-      setSf(f => ({ ...f, clientId: client.id }))
-      await db.saveClient(client)
+      const existing = state.brands.find(b => b.name.trim().toLowerCase() === qf.name.trim().toLowerCase())
+      if (existing) {
+        // Auto-select the existing brand and close
+        setWf(f => ({ ...f, _brandId: existing.id, _modelId: '', refId: '' }))
+        toast(`Marca "${existing.name}" ya existe — seleccionada automáticamente`, 'info')
+        setQc(null); setQf({}); setQcError(''); return
+      }
     }
-    setQc(null); setQf({})
+    if (type === 'model') {
+      if (!qf.name || !wf._brandId) return
+      const existing = state.models.find(m => m.brandId === wf._brandId && m.name.trim().toLowerCase() === qf.name.trim().toLowerCase())
+      if (existing) {
+        setWf(f => ({ ...f, _modelId: existing.id, refId: '' }))
+        toast(`Modelo "${existing.name}" ya existe — seleccionado automáticamente`, 'info')
+        setQc(null); setQf({}); setQcError(''); return
+      }
+    }
+    if (type === 'ref') {
+      if (!qf.ref || !wf._modelId) return
+      const existing = state.refs.find(r => r.modelId === wf._modelId && r.ref.trim().toLowerCase() === qf.ref.trim().toLowerCase())
+      if (existing) {
+        setWf(f => ({ ...f, refId: existing.id }))
+        toast(`Referencia "${existing.ref}" ya existe — seleccionada automáticamente`, 'info')
+        setQc(null); setQf({}); setQcError(''); return
+      }
+    }
+    if (type === 'supplier') {
+      if (!qf.name) return
+      const existing = state.suppliers.find(s => s.name.trim().toLowerCase() === qf.name.trim().toLowerCase())
+      if (existing) {
+        setWf(f => ({ ...f, supplierId: existing.id }))
+        toast(`Proveedor "${existing.name}" ya existe — seleccionado automáticamente`, 'info')
+        setQc(null); setQf({}); setQcError(''); return
+      }
+    }
+    if (type === 'client') {
+      if (!qf.name) return
+      const existing = state.clients.find(c => c.name.trim().toLowerCase() === qf.name.trim().toLowerCase())
+      if (existing) {
+        setSf(f => ({ ...f, clientId: existing.id }))
+        toast(`Cliente "${existing.name}" ya existe — seleccionado automáticamente`, 'info')
+        setQc(null); setQf({}); setQcError(''); return
+      }
+    }
+
+    // ── Create ───────────────────────────────────────────────────────────────
+    setQcSaving(true)
+    let created = null
+    let createdType = null
+    try {
+      if (type === 'brand') {
+        const brand = { id: 'B' + uid(), name: qf.name.trim(), country: qf.country || 'Suiza', founded: qf.founded || null, notes: '' }
+        created = brand; createdType = 'brand'
+        setState(s => ({ ...s, brands: [...s.brands, brand] }))
+        setWf(f => ({ ...f, _brandId: brand.id, _modelId: '', refId: '' }))
+        await db.saveBrand(brand)
+        toast(`Marca "${brand.name}" creada`)
+      } else if (type === 'model') {
+        const model = { id: 'M' + uid(), brandId: wf._brandId, name: qf.name.trim(), family: qf.family || '', notes: '' }
+        created = model; createdType = 'model'
+        setState(s => ({ ...s, models: [...s.models, model] }))
+        setWf(f => ({ ...f, _modelId: model.id, refId: '' }))
+        await db.saveModel(model)
+        toast(`Modelo "${model.name}" creado`)
+      } else if (type === 'ref') {
+        const ref = { id: 'R' + uid(), modelId: wf._modelId, ref: qf.ref.trim(), caliber: qf.caliber || '', material: qf.material || 'Acero', bezel: qf.bezel || '', dial: qf.dial || '', size: qf.size || '', bracelet: '', year: +qf.year || null, notes: '' }
+        created = ref; createdType = 'ref'
+        setState(s => ({ ...s, refs: [...s.refs, ref] }))
+        setWf(f => ({ ...f, refId: ref.id }))
+        await db.saveRef(ref)
+        toast(`Referencia "${ref.ref}" creada`)
+      } else if (type === 'supplier') {
+        const supplier = { id: 'P' + uid(), name: qf.name.trim(), type: qf.type || 'Particular', phone: qf.phone || '', email: '', city: '', notes: '', rating: 3, totalDeals: 0 }
+        created = supplier; createdType = 'supplier'
+        setState(s => ({ ...s, suppliers: [...s.suppliers, supplier] }))
+        setWf(f => ({ ...f, supplierId: supplier.id }))
+        await db.saveSupplier(supplier)
+        toast(`Proveedor "${supplier.name}" creado`)
+      } else if (type === 'client') {
+        const client = { id: 'C' + uid(), name: qf.name.trim(), phone: qf.phone || '', email: '', city: '', tier: 'Prospecto', notes: '', totalSpent: 0, totalPurchases: 0 }
+        created = client; createdType = 'client'
+        setState(s => ({ ...s, clients: [...s.clients, client] }))
+        setSf(f => ({ ...f, clientId: client.id }))
+        await db.saveClient(client)
+        toast(`Cliente "${client.name}" creado`)
+      }
+      setQc(null); setQf({}); setQcError('')
+    } catch (e) {
+      // Rollback optimistic update
+      if (created && createdType) {
+        setState(s => ({
+          ...s,
+          brands:    createdType === 'brand'    ? s.brands.filter(x => x.id !== created.id)    : s.brands,
+          models:    createdType === 'model'    ? s.models.filter(x => x.id !== created.id)    : s.models,
+          refs:      createdType === 'ref'      ? s.refs.filter(x => x.id !== created.id)      : s.refs,
+          suppliers: createdType === 'supplier' ? s.suppliers.filter(x => x.id !== created.id) : s.suppliers,
+          clients:   createdType === 'client'   ? s.clients.filter(x => x.id !== created.id)   : s.clients,
+        }))
+      }
+      setQcError('Error al guardar: ' + e.message)
+    }
+    setQcSaving(false)
   }
 
   const filtered = watches.filter(w => {
@@ -862,13 +968,24 @@ function InventarioModule({ state, setState }) {
   ]
 
   const saveWatch = async () => {
+    if (watchSaving) return
+    setWatchSaving(true)
     const id = 'W' + uid()
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
     const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }
+    // Optimistic update
     setState(s => ({ ...s, watches: [...s.watches, watch] }))
-    await db.saveWatch(watch)
-    toast('Pieza registrada en inventario')
-    setShowAdd(false); setWf({ ...blank })
+    try {
+      await db.saveWatch(watch)
+      toast('Pieza registrada en inventario')
+      setShowAdd(false)
+      setWf({ ...blank })
+    } catch (e) {
+      // Rollback optimistic update
+      setState(s => ({ ...s, watches: s.watches.filter(w => w.id !== id) }))
+      toast('Error al registrar pieza: ' + e.message, 'error')
+    }
+    setWatchSaving(false)
   }
 
   const saveAdditionalCost = async () => {
@@ -877,37 +994,71 @@ function InventarioModule({ state, setState }) {
     const updatedWatch = { ...selWatch, costos: [...(selWatch.costos || []), newCosto] }
     setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updatedWatch) }))
     setSelWatch(updatedWatch)
-    await db.saveCosto(newCosto)
-    toast('Costo adicional registrado')
-    setShowAddCosto(false)
-    setCostoForm({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
+    try {
+      await db.saveCosto(newCosto)
+      toast('Costo adicional registrado')
+      setShowAddCosto(false)
+      setCostoForm({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
+    } catch (e) {
+      // Rollback
+      setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : selWatch) }))
+      setSelWatch(selWatch)
+      toast('Error al guardar costo: ' + e.message, 'error')
+    }
   }
 
   const approve = async w => {
     const extra = { validated_by: 'Director', validation_date: tod(), entry_date: tod() }
     setState(s => ({ ...s, watches: s.watches.map(x => x.id !== w.id ? x : { ...x, stage: 'inventario', status: 'Disponible', validatedBy: 'Director', validationDate: tod(), entryDate: tod() }) }))
     setSelWatch(p => ({ ...p, stage: 'inventario', status: 'Disponible', validatedBy: 'Director' }))
-    await db.updateWatchStage(w.id, 'inventario', 'Disponible', extra)
-    toast('Pieza aprobada · ahora en inventario')
+    try {
+      await db.updateWatchStage(w.id, 'inventario', 'Disponible', extra)
+      toast('Pieza aprobada · ahora en inventario')
+    } catch (e) {
+      // Rollback
+      setState(s => ({ ...s, watches: s.watches.map(x => x.id !== w.id ? x : w) }))
+      setSelWatch(w)
+      toast('Error al aprobar pieza: ' + e.message, 'error')
+    }
   }
 
   const saveSale = async () => {
+    if (watchSaving) return
+    setWatchSaving(true)
     const id = 'S' + uid()
     const sale = { ...sf, id, watchId: selWatch.id, agreedPrice: +sf.agreedPrice, payments: [], status: 'Pendiente' }
+    const prevWatchState = { status: selWatch.status, stage: selWatch.stage }
+    // Optimistic update
     setState(s => ({
       ...s,
       watches: s.watches.map(x => x.id !== selWatch.id ? x : { ...x, status: 'Vendido', stage: 'liquidado' }),
       sales:   [...s.sales, sale]
     }))
     setSelWatch(p => ({ ...p, status: 'Vendido', stage: 'liquidado' }))
-    await db.updateWatchStage(selWatch.id, 'liquidado', 'Vendido')
-    await db.saveVenta(sale)
-    toast('Venta registrada correctamente')
-    setShowSale(false); setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
+    try {
+      await db.updateWatchStage(selWatch.id, 'liquidado', 'Vendido')
+      await db.saveVenta(sale)
+      toast('Venta registrada correctamente')
+      setShowSale(false)
+      setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
+    } catch (e) {
+      // Rollback
+      setState(s => ({
+        ...s,
+        watches: s.watches.map(x => x.id !== selWatch.id ? x : { ...x, ...prevWatchState }),
+        sales: s.sales.filter(x => x.id !== id)
+      }))
+      setSelWatch(p => ({ ...p, ...prevWatchState }))
+      toast('Error al registrar venta: ' + e.message, 'error')
+    }
+    setWatchSaving(false)
   }
 
   const savePay = async saleId => {
+    if (watchSaving) return
+    setWatchSaving(true)
     const pago = { ...pf, id: 'PAY' + uid(), ventaId: saleId, amount: +pf.amount }
+    const prevSales = state.sales.map(s => ({ ...s, payments: [...s.payments] }))
     setState(s => ({
       ...s,
       sales: s.sales.map(sale => {
@@ -915,13 +1066,23 @@ function InventarioModule({ state, setState }) {
         const pays  = [...sale.payments, pago]
         const total = pays.reduce((a, p) => a + p.amount, 0)
         const status = total >= sale.agreedPrice ? 'Liquidado' : total > 0 ? 'Parcial' : 'Pendiente'
-        db.updateVentaStatus(saleId, status)
         return { ...sale, payments: pays, status }
       })
     }))
-    await db.savePago(pago)
-    toast('Pago registrado')
-    setShowPay(null); setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+    try {
+      const sale = state.sales.find(s => s.id === saleId)
+      const newTotal = (sale?.payments || []).reduce((a, p) => a + p.amount, 0) + pago.amount
+      const newStatus = newTotal >= (sale?.agreedPrice || 0) ? 'Liquidado' : newTotal > 0 ? 'Parcial' : 'Pendiente'
+      await db.savePago(pago)
+      await db.updateVentaStatus(saleId, newStatus)
+      toast('Pago registrado')
+      setShowPay(null)
+      setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+    } catch (e) {
+      setState(s => ({ ...s, sales: prevSales }))
+      toast('Error al registrar pago: ' + e.message, 'error')
+    }
+    setWatchSaving(false)
   }
 
   const selRef      = selWatch ? refs.find(r => r.id === selWatch.refId) : null
@@ -1078,8 +1239,8 @@ function InventarioModule({ state, setState }) {
                         <Field label="Notas"><input value={pf.notes} onChange={e => setPf(f => ({ ...f, notes: e.target.value }))} placeholder="Referencia..." style={inputStyle} /></Field>
                       </FR>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        <Btn small variant="secondary" onClick={() => setShowPay(null)}>Cancelar</Btn>
-                        <Btn small onClick={() => savePay(selSale.id)} disabled={!pf.amount}>Registrar Pago</Btn>
+                        <Btn small variant="secondary" onClick={() => setShowPay(null)} disabled={watchSaving}>Cancelar</Btn>
+                        <Btn small onClick={() => savePay(selSale.id)} disabled={!pf.amount || watchSaving}>{watchSaving ? 'Guardando...' : 'Registrar Pago'}</Btn>
                       </div>
                     </div>
                   ) : <Btn variant="ghost" onClick={() => setShowPay(selSale.id)}>+ Registrar Pago Parcial</Btn>
@@ -1171,7 +1332,7 @@ function InventarioModule({ state, setState }) {
           <FR>
             <SelectWithCreate label="Cliente *" value={sf.clientId} onChange={v => setSf(f => ({ ...f, clientId: v }))}
               options={<><option value="">— Seleccionar —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</>}
-              onClickCreate={() => { setQc('client'); setQf({}) }} createLabel="Nuevo cliente" />
+              onClickCreate={() => { setQc('client'); setQf({}); setQcError(''); setQcSaving(false) }} createLabel="Nuevo cliente" />
             <Field label="Fecha"><input type="date" value={sf.saleDate} onChange={e => setSf(f => ({ ...f, saleDate: e.target.value }))} style={inputStyle} /></Field>
           </FR>
           <FR cols={1}><Field label="Precio acordado (MXN)" required>
@@ -1179,39 +1340,39 @@ function InventarioModule({ state, setState }) {
             {sf.agreedPrice && selWatch.cost && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: GRN, marginTop: 4 }}>Utilidad bruta: +{fmt(+sf.agreedPrice - selWatch.cost)} ({((+sf.agreedPrice - selWatch.cost) / selWatch.cost * 100).toFixed(1)}%)</div>}
           </Field></FR>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-            <Btn variant="secondary" small onClick={() => setShowSale(false)}>Cancelar</Btn>
-            <Btn small onClick={saveSale} disabled={!sf.clientId || !sf.agreedPrice}>Registrar Venta</Btn>
+            <Btn variant="secondary" small onClick={() => setShowSale(false)} disabled={watchSaving}>Cancelar</Btn>
+            <Btn small onClick={saveSale} disabled={!sf.clientId || !sf.agreedPrice || watchSaving}>{watchSaving ? 'Guardando...' : 'Registrar Venta'}</Btn>
           </div>
         </Modal>
       )}
 
       {/* ADD WATCH */}
       {showAdd && (
-        <Modal title="Registrar Nueva Pieza" onClose={() => setShowAdd(false)}>
+        <Modal title="Registrar Nueva Pieza" onClose={() => !watchSaving && setShowAdd(false)}>
           <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 16, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
             Selecciona del catálogo: Marca → Modelo → Referencia
           </div>
           <FR>
             <SelectWithCreate label="Marca *" value={wf._brandId || ''} onChange={v => setWf(f => ({ ...f, _brandId: v, _modelId: '', refId: '' }))}
               options={<><option value="">— Seleccionar —</option>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</>}
-              onClickCreate={() => { setQc('brand'); setQf({}) }} createLabel="Nueva marca" />
+              onClickCreate={() => { setQc('brand'); setQf({}); setQcError(''); setQcSaving(false) }} createLabel="Nueva marca" />
             <SelectWithCreate label="Modelo *" value={wf._modelId || ''} onChange={v => setWf(f => ({ ...f, _modelId: v, refId: '' }))}
               disabled={!wf._brandId}
               options={<><option value="">— Seleccionar —</option>{models.filter(m => m.brandId === wf._brandId).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</>}
-              onClickCreate={() => { setQc('model'); setQf({}) }} createLabel="Nuevo modelo" />
+              onClickCreate={() => { setQc('model'); setQf({}); setQcError(''); setQcSaving(false) }} createLabel="Nuevo modelo" />
           </FR>
           <div style={{ marginBottom: 14 }}>
             <SelectWithCreate label="Referencia *" value={wf.refId} onChange={v => setWf(f => ({ ...f, refId: v }))}
               disabled={!wf._modelId}
               options={<><option value="">— Seleccionar —</option>{refs.filter(r => r.modelId === wf._modelId).map(r => <option key={r.id} value={r.id}>{r.ref} · {r.material} · {r.dial} · {r.size}</option>)}</>}
-              onClickCreate={() => { setQc('ref'); setQf({ material: 'Acero' }) }} createLabel="Nueva referencia" />
+              onClickCreate={() => { setQc('ref'); setQf({ material: 'Acero' }); setQcError(''); setQcSaving(false) }} createLabel="Nueva referencia" />
           </div>
           <Divider label="DATOS FÍSICOS" />
           <FR>
             <Field label="Serial"><input value={wf.serial} onChange={e => setWf(f => ({ ...f, serial: e.target.value }))} placeholder="S/N" style={inputStyle} /></Field>
             <SelectWithCreate label="Proveedor *" value={wf.supplierId} onChange={v => setWf(f => ({ ...f, supplierId: v }))}
               options={<><option value="">— Seleccionar —</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</>}
-              onClickCreate={() => { setQc('supplier'); setQf({ type: 'Particular' }) }} createLabel="Nuevo proveedor" />
+              onClickCreate={() => { setQc('supplier'); setQf({ type: 'Particular' }); setQcError(''); setQcSaving(false) }} createLabel="Nuevo proveedor" />
           </FR>
           <FR>
             <Field label="Condición">
@@ -1278,73 +1439,156 @@ function InventarioModule({ state, setState }) {
           <Field label="Notas">
             <textarea rows={2} value={wf.notes} onChange={e => setWf(f => ({ ...f, notes: e.target.value }))} placeholder="Procedencia, observaciones..." style={{ ...inputStyle, resize: 'vertical', marginBottom: 14 }} />
           </Field>
+          {watchSaving && (
+            <div style={{ background: G + '18', border: `1px solid ${G}44`, borderRadius: 4, padding: '8px 14px', marginBottom: 10,
+                          fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, letterSpacing: '.15em', textAlign: 'center',
+                          animation: 'pulse 1.2s infinite' }}>
+              REGISTRANDO PIEZA...
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn variant="secondary" small onClick={() => setShowAdd(false)}>Cancelar</Btn>
-            <Btn small onClick={saveWatch} disabled={!wf.refId || !wf.supplierId}>Registrar Pieza</Btn>
+            <Btn variant="secondary" small onClick={() => !watchSaving && setShowAdd(false)} disabled={watchSaving}>Cancelar</Btn>
+            <Btn small onClick={saveWatch} disabled={!wf.refId || !wf.supplierId || watchSaving}>
+              {watchSaving ? 'Guardando...' : 'Registrar Pieza'}
+            </Btn>
           </div>
         </Modal>
       )}
 
       {/* QUICK CREATE MODALS */}
       {qc === 'brand' && (
-        <QuickCreate title="Nueva Marca" onClose={() => { setQc(null); setQf({}) }}>
-          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre de la marca *" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
-          <input value={qf.country || ''} onChange={e => setQf(f => ({ ...f, country: e.target.value }))} placeholder="País (Suiza, Japón...)" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+        <QuickCreate title="Nueva Marca" onClose={() => { setQc(null); setQf({}); setQcError('') }} error={qcError} saving={qcSaving}>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('brand')}
+            placeholder="Nombre de la marca *" autoFocus
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
+          <input value={qf.country || ''} onChange={e => setQf(f => ({ ...f, country: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('brand')}
+            placeholder="País (Suiza, Japón...)"
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
-            <Btn small onClick={() => quickCreate('brand')} disabled={!qf.name}>Crear Marca</Btn>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}); setQcError('') }} disabled={qcSaving}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('brand')} disabled={!qf.name || qcSaving}>{qcSaving ? 'Guardando...' : 'Crear Marca'}</Btn>
           </div>
         </QuickCreate>
       )}
 
       {qc === 'model' && (
-        <QuickCreate title="Nuevo Modelo" onClose={() => { setQc(null); setQf({}) }}>
+        <QuickCreate title="Nuevo Modelo" onClose={() => { setQc(null); setQf({}); setQcError('') }} error={qcError} saving={qcSaving}>
           <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 10 }}>
             Marca: {brands.find(b => b.id === wf._brandId)?.name || '—'}
           </div>
-          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre del modelo *" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
-          <input value={qf.family || ''} onChange={e => setQf(f => ({ ...f, family: e.target.value }))} placeholder="Familia (Submariner, Datejust...)" style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('model')}
+            placeholder="Nombre del modelo *" autoFocus
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
+          <input value={qf.family || ''} onChange={e => setQf(f => ({ ...f, family: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('model')}
+            placeholder="Familia (Submariner, Datejust...) — opcional"
+            style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
-            <Btn small onClick={() => quickCreate('model')} disabled={!qf.name || !wf._brandId}>Crear Modelo</Btn>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}); setQcError('') }} disabled={qcSaving}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('model')} disabled={!qf.name || !wf._brandId || qcSaving}>{qcSaving ? 'Guardando...' : 'Crear Modelo'}</Btn>
           </div>
         </QuickCreate>
       )}
 
       {qc === 'ref' && (
-        <QuickCreate title="Nueva Referencia" onClose={() => { setQc(null); setQf({}) }}>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 10 }}>
-            Modelo: {models.find(m => m.id === wf._modelId)?.name || '—'}
+        <QuickCreate title="Nueva Referencia" onClose={() => { setQc(null); setQf({ material: 'Acero', size: '', dial: '', bezel: '' }); setQcError('') }} error={qcError} saving={qcSaving}>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 12, letterSpacing: '.1em' }}>
+            MODELO: {models.find(m => m.id === wf._modelId)?.name || '—'}
           </div>
-          {[
-            ['ref', 'Referencia *', 'Ej. 126710BLNR'],
-            ['caliber', 'Calibre', 'Ej. 3285'],
-            ['size', 'Tamaño', 'Ej. 40mm'],
-            ['dial', 'Esfera', 'Ej. Negro'],
-            ['bezel', 'Bisel', 'Ej. Cerachrom'],
-          ].map(([k, label, ph]) => (
-            <input key={k} value={qf[k] || ''} onChange={e => setQf(f => ({ ...f, [k]: e.target.value }))}
-              placeholder={`${label}${label.includes('*') ? '' : ' (opcional)'} — ${ph}`}
-              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
-          ))}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <select value={qf.material || 'Acero'} onChange={e => setQf(f => ({ ...f, material: e.target.value }))}
-              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, flex: 1, outline: 'none' }}>
-              {['Acero', 'Oro Amarillo', 'Oro Blanco', 'Oro Rosa', 'Titanio', 'Cerámica', 'Platino', 'Bimetálico'].map(m => <option key={m}>{m}</option>)}
-            </select>
-            <input value={qf.year || ''} onChange={e => setQf(f => ({ ...f, year: e.target.value }))} placeholder="Año" type="number"
-              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: 90, outline: 'none' }} />
+
+          {/* Referencia — uppercase alfanumérico */}
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>NÚMERO DE REFERENCIA *</label>
+            <input value={qf.ref || ''} autoFocus
+              onChange={e => setQf(f => ({ ...f, ref: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\/\.]/g, '') }))}
+              onKeyDown={e => e.key === 'Enter' && qf.ref && quickCreate('ref')}
+              placeholder="Ej. 126710BLNR · 5711/1A-010 · PAM00441"
+              maxLength={20}
+              style={{ background: S3, border: `1px solid ${qf.ref ? G + '66' : BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, letterSpacing: '.05em', width: '100%', outline: 'none', boxSizing: 'border-box', transition: 'border-color .2s' }} />
           </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
-            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
-            <Btn small onClick={() => quickCreate('ref')} disabled={!qf.ref || !wf._modelId}>Crear Referencia</Btn>
+
+          {/* Calibre — uppercase alfanumérico */}
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>CALIBRE <span style={{ color: TD, opacity: .5 }}>(opcional)</span></label>
+            <input value={qf.caliber || ''}
+              onChange={e => setQf(f => ({ ...f, caliber: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\.\/]/g, '') }))}
+              placeholder="Ej. 3235 · ETA 2824 · Cal.5 · A08"
+              maxLength={15}
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, letterSpacing: '.05em', width: '100%', outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          {/* Row: Tamaño + Material */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>DIÁMETRO</label>
+              <select value={qf.size || ''} onChange={e => setQf(f => ({ ...f, size: e.target.value }))}
+                style={{ background: S3, border: `1px solid ${BR}`, color: qf.size ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
+                <option value="">— Sin especificar —</option>
+                {['34mm','36mm','37mm','38mm','39mm','40mm','41mm','42mm','43mm','44mm','45mm','46mm','47mm','50mm'].map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>MATERIAL CAJA</label>
+              <select value={qf.material || 'Acero'} onChange={e => setQf(f => ({ ...f, material: e.target.value }))}
+                style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
+                {['Acero','Oro Amarillo 18k','Oro Blanco 18k','Oro Rosa 18k','Bimetálico','Platino','Titanio','Cerámica','Carbono'].map(m => <option key={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Row: Esfera + Bisel */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>ESFERA <span style={{ opacity: .5 }}>(opcional)</span></label>
+              <select value={qf.dial || ''} onChange={e => setQf(f => ({ ...f, dial: e.target.value }))}
+                style={{ background: S3, border: `1px solid ${BR}`, color: qf.dial ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
+                <option value="">— Sin especificar —</option>
+                {['Negra','Blanca','Azul','Gris','Verde','Champagne','Plateada','Marrón',
+                  'Meteorito','Nácar','Skeletonizada','Smoked','Sunburst azul','Sunburst verde'].map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>BISEL <span style={{ opacity: .5 }}>(opcional)</span></label>
+              <select value={qf.bezel || ''} onChange={e => setQf(f => ({ ...f, bezel: e.target.value }))}
+                style={{ background: S3, border: `1px solid ${BR}`, color: qf.bezel ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
+                <option value="">— Sin especificar —</option>
+                {['Liso','Estriado','Cerachrom negro','Cerachrom azul','Cerachrom verde',
+                  'Cerachrom bicolor','Taquímetro','GMT bicolor','Buceador','Pulsométro',
+                  'Diamantes','Engastado'].map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Año */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>AÑO INTRODUCCIÓN <span style={{ opacity: .5 }}>(opcional)</span></label>
+            <input value={qf.year || ''} type="number"
+              min={1920} max={new Date().getFullYear()}
+              onChange={e => {
+                const v = e.target.value
+                if (v === '' || (parseInt(v) >= 1920 && parseInt(v) <= new Date().getFullYear()))
+                  setQf(f => ({ ...f, year: v }))
+              }}
+              placeholder={`1920 – ${new Date().getFullYear()}`}
+              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, width: '100%', outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({ material: 'Acero' }); setQcError('') }} disabled={qcSaving}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('ref')} disabled={!qf.ref || !wf._modelId || qcSaving}>{qcSaving ? 'Guardando...' : 'Crear Referencia'}</Btn>
           </div>
         </QuickCreate>
       )}
 
       {qc === 'supplier' && (
-        <QuickCreate title="Nuevo Proveedor" onClose={() => { setQc(null); setQf({}) }}>
-          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre *"
+        <QuickCreate title="Nuevo Proveedor" onClose={() => { setQc(null); setQf({}); setQcError('') }} error={qcError} saving={qcSaving}>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('supplier')}
+            placeholder="Nombre *" autoFocus
             style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <select value={qf.type || 'Particular'} onChange={e => setQf(f => ({ ...f, type: e.target.value }))}
@@ -1355,21 +1599,25 @@ function InventarioModule({ state, setState }) {
               style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: 140, outline: 'none' }} />
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
-            <Btn small onClick={() => quickCreate('supplier')} disabled={!qf.name}>Crear Proveedor</Btn>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}); setQcError('') }} disabled={qcSaving}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('supplier')} disabled={!qf.name || qcSaving}>{qcSaving ? 'Guardando...' : 'Crear Proveedor'}</Btn>
           </div>
         </QuickCreate>
       )}
 
       {qc === 'client' && (
-        <QuickCreate title="Nuevo Cliente" onClose={() => { setQc(null); setQf({}) }}>
-          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre completo *"
+        <QuickCreate title="Nuevo Cliente" onClose={() => { setQc(null); setQf({}); setQcError('') }} error={qcError} saving={qcSaving}>
+          <input value={qf.name || ''} onChange={e => setQf(f => ({ ...f, name: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('client')}
+            placeholder="Nombre completo *" autoFocus
             style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
-          <input value={qf.phone || ''} onChange={e => setQf(f => ({ ...f, phone: e.target.value }))} placeholder="Teléfono"
+          <input value={qf.phone || ''} onChange={e => setQf(f => ({ ...f, phone: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && qf.name && quickCreate('client')}
+            placeholder="Teléfono"
             style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}) }}>Cancelar</Btn>
-            <Btn small onClick={() => quickCreate('client')} disabled={!qf.name}>Crear Cliente</Btn>
+            <Btn small variant="secondary" onClick={() => { setQc(null); setQf({}); setQcError('') }} disabled={qcSaving}>Cancelar</Btn>
+            <Btn small onClick={() => quickCreate('client')} disabled={!qf.name || qcSaving}>{qcSaving ? 'Guardando...' : 'Crear Cliente'}</Btn>
           </div>
         </QuickCreate>
       )}
@@ -1395,6 +1643,7 @@ function VentasModule({ state, setState }) {
 
   const savePay = async saleId => {
     const pago = { ...pf, id: 'PAY' + uid(), ventaId: saleId, amount: +pf.amount }
+    const prevSales = state.sales
     setState(s => ({
       ...s,
       sales: s.sales.map(sale => {
@@ -1402,13 +1651,22 @@ function VentasModule({ state, setState }) {
         const pays  = [...sale.payments, pago]
         const total = pays.reduce((a, p) => a + p.amount, 0)
         const status = total >= sale.agreedPrice ? 'Liquidado' : total > 0 ? 'Parcial' : 'Pendiente'
-        db.updateVentaStatus(saleId, status)
         return { ...sale, payments: pays, status }
       })
     }))
-    await db.savePago(pago)
-    toast('Pago registrado')
-    setShowPay(null); setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+    try {
+      const sale = prevSales.find(s => s.id === saleId)
+      const newTotal = (sale?.payments || []).reduce((a, p) => a + p.amount, 0) + pago.amount
+      const newStatus = newTotal >= (sale?.agreedPrice || 0) ? 'Liquidado' : newTotal > 0 ? 'Parcial' : 'Pendiente'
+      await db.savePago(pago)
+      await db.updateVentaStatus(saleId, newStatus)
+      toast('Pago registrado')
+      setShowPay(null)
+      setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+    } catch (e) {
+      setState(s => ({ ...s, sales: prevSales }))
+      toast('Error al registrar pago: ' + e.message, 'error')
+    }
   }
 
   const totalVentas  = sales.reduce((a, s) => a + s.agreedPrice, 0)
@@ -1615,88 +1873,106 @@ function CatalogosModule({ state, setState }) {
   const saveBrand = async () => {
     if (saving) return
     setSaving(true)
-    if (editBrand) {
-      const updated = { ...editBrand, ...bf }
-      setState(s => ({ ...s, brands: s.brands.map(b => b.id !== editBrand.id ? b : updated) }))
-      await db.saveBrand(updated)
-    } else {
-      const brand = { ...bf, id: 'B' + uid() }
-      setState(s => ({ ...s, brands: [...s.brands, brand] }))
-      await db.saveBrand(brand)
-    toast(editBrand ? 'Marca actualizada' : 'Marca guardada correctamente')
-    }
-    setShowBrandForm(false)
+    try {
+      if (editBrand) {
+        const updated = { ...editBrand, ...bf }
+        setState(s => ({ ...s, brands: s.brands.map(b => b.id !== editBrand.id ? b : updated) }))
+        await db.saveBrand(updated)
+      } else {
+        const brand = { ...bf, id: 'B' + uid() }
+        setState(s => ({ ...s, brands: [...s.brands, brand] }))
+        await db.saveBrand(brand)
+      }
+      toast(editBrand ? 'Marca actualizada' : 'Marca guardada correctamente')
+      setShowBrandForm(false)
+    } catch (e) { toast('Error: ' + e.message, 'error') }
     setSaving(false)
   }
 
   const saveModel = async () => {
     if (saving) return
     setSaving(true)
-    if (editModel) {
-      const updated = { ...editModel, ...mf }
-      setState(s => ({ ...s, models: s.models.map(m => m.id !== editModel.id ? m : updated) }))
-      await db.saveModel(updated)
-    } else {
-      const model = { ...mf, id: 'M' + uid() }
-      setState(s => ({ ...s, models: [...s.models, model] }))
-      await db.saveModel(model)
-    }
-    toast(editModel ? 'Modelo actualizado' : 'Modelo guardado correctamente')
-    setShowModelForm(false)
+    try {
+      if (editModel) {
+        const updated = { ...editModel, ...mf }
+        setState(s => ({ ...s, models: s.models.map(m => m.id !== editModel.id ? m : updated) }))
+        await db.saveModel(updated)
+      } else {
+        const model = { ...mf, id: 'M' + uid() }
+        setState(s => ({ ...s, models: [...s.models, model] }))
+        await db.saveModel(model)
+      }
+      toast(editModel ? 'Modelo actualizado' : 'Modelo guardado correctamente')
+      setShowModelForm(false)
+    } catch (e) { toast('Error: ' + e.message, 'error') }
     setSaving(false)
   }
 
   const saveRef = async () => {
     if (saving) return
     setSaving(true)
-    if (editRef) {
-      const updated = { ...editRef, ...rf, year: +rf.year }
-      setState(s => ({ ...s, refs: s.refs.map(r => r.id !== editRef.id ? r : updated) }))
-      await db.saveRef(updated)
-    } else {
-      const ref = { ...rf, id: 'R' + uid(), year: +rf.year }
-      setState(s => ({ ...s, refs: [...s.refs, ref] }))
-      await db.saveRef(ref)
-    }
-    toast(editRef ? 'Referencia actualizada' : 'Referencia guardada correctamente')
-    setShowRefForm(false)
+    try {
+      if (editRef) {
+        const updated = { ...editRef, ...rf, year: +rf.year }
+        setState(s => ({ ...s, refs: s.refs.map(r => r.id !== editRef.id ? r : updated) }))
+        await db.saveRef(updated)
+      } else {
+        const ref = { ...rf, id: 'R' + uid(), year: +rf.year }
+        setState(s => ({ ...s, refs: [...s.refs, ref] }))
+        await db.saveRef(ref)
+      }
+      toast(editRef ? 'Referencia actualizada' : 'Referencia guardada correctamente')
+      setShowRefForm(false)
+    } catch (e) { toast('Error: ' + e.message, 'error') }
     setSaving(false)
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const delBrand = async (b) => {
     if (!window.confirm(`¿Eliminar "${b.name}"? Se eliminarán también sus modelos y referencias.`)) return
+    const prev = { brands: state.brands, models: state.models, refs: state.refs }
     setState(s => {
       const modelIds = s.models.filter(m => m.brandId === b.id).map(m => m.id)
-      return {
-        ...s,
-        brands: s.brands.filter(x => x.id !== b.id),
-        models: s.models.filter(m => m.brandId !== b.id),
-        refs:   s.refs.filter(r => !modelIds.includes(r.modelId)),
-      }
+      return { ...s, brands: s.brands.filter(x => x.id !== b.id), models: s.models.filter(m => m.brandId !== b.id), refs: s.refs.filter(r => !modelIds.includes(r.modelId)) }
     })
-    await sb.from('marcas').delete().eq('id', b.id)
-    toast('Marca eliminada', 'info')
-    if (selBrand?.id === b.id) setSelBrand(null)
+    try {
+      const { error } = await sb.from('marcas').delete().eq('id', b.id)
+      if (error) throw new Error(error.message)
+      toast('Marca eliminada', 'info')
+      if (selBrand?.id === b.id) setSelBrand(null)
+    } catch (e) {
+      setState(s => ({ ...s, ...prev }))
+      toast('Error al eliminar: ' + e.message, 'error')
+    }
   }
 
   const delModel = async (m) => {
     if (!window.confirm(`¿Eliminar "${m.name}"? Se eliminarán también sus referencias.`)) return
-    setState(s => ({
-      ...s,
-      models: s.models.filter(x => x.id !== m.id),
-      refs:   s.refs.filter(r => r.modelId !== m.id),
-    }))
-    await sb.from('modelos').delete().eq('id', m.id)
-    toast('Modelo eliminado', 'info')
-    if (selModel?.id === m.id) setSelModel(null)
+    const prev = { models: state.models, refs: state.refs }
+    setState(s => ({ ...s, models: s.models.filter(x => x.id !== m.id), refs: s.refs.filter(r => r.modelId !== m.id) }))
+    try {
+      const { error } = await sb.from('modelos').delete().eq('id', m.id)
+      if (error) throw new Error(error.message)
+      toast('Modelo eliminado', 'info')
+      if (selModel?.id === m.id) setSelModel(null)
+    } catch (e) {
+      setState(s => ({ ...s, ...prev }))
+      toast('Error al eliminar: ' + e.message, 'error')
+    }
   }
 
   const delRef = async (r) => {
     if (!window.confirm(`¿Eliminar referencia "${r.ref}"?`)) return
+    const prev = state.refs
     setState(s => ({ ...s, refs: s.refs.filter(x => x.id !== r.id) }))
-    await sb.from('referencias').delete().eq('id', r.id)
-    toast('Referencia eliminada', 'info')
+    try {
+      const { error } = await sb.from('referencias').delete().eq('id', r.id)
+      if (error) throw new Error(error.message)
+      toast('Referencia eliminada', 'info')
+    } catch (e) {
+      setState(s => ({ ...s, refs: prev }))
+      toast('Error al eliminar: ' + e.message, 'error')
+    }
   }
 
   const filteredModels = selBrand ? models.filter(m => m.brandId === selBrand.id) : models
@@ -1930,34 +2206,72 @@ function CatalogosModule({ state, setState }) {
 
       {/* ── MODAL REFERENCIA ───────────────────────────────────────────────── */}
       {showRefForm && (
-        <Modal title={editRef ? `Editar · ${editRef.ref}` : 'Nueva Referencia'} onClose={() => setShowRefForm(false)}>
+        <Modal title={editRef ? `Editar · ${editRef.ref}` : 'Nueva Referencia'} onClose={() => setShowRefForm(false)} width={560}>
           <FR>
-            <Field label="Modelo" required>
+            <Field label="Modelo *">
               <select value={rf.modelId} onChange={e => setRf(f => ({ ...f, modelId: e.target.value }))} style={inputStyle}>
-                <option value="">— Seleccionar —</option>{models.map(m => { const b = brands.find(b => b.id === m.brandId); return <option key={m.id} value={m.id}>{b?.name} {m.name}</option> })}
+                <option value="">— Seleccionar —</option>
+                {models.map(m => { const b = brands.find(b => b.id === m.brandId); return <option key={m.id} value={m.id}>{b?.name} {m.name}</option> })}
               </select>
             </Field>
-            <Field label="Referencia" required><input value={rf.ref} onChange={e => setRf(f => ({ ...f, ref: e.target.value }))} placeholder="126610LN, 5711/1A..." style={inputStyle} /></Field>
+            <Field label="Número de Referencia *">
+              <input value={rf.ref}
+                onChange={e => setRf(f => ({ ...f, ref: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\/\.]/g, '') }))}
+                placeholder="Ej. 126610LN · 5711/1A-010" maxLength={20}
+                style={{ ...inputStyle, fontFamily: "'DM Mono', monospace", letterSpacing: '.05em' }} />
+            </Field>
           </FR>
           <FR>
-            <Field label="Calibre"><input value={rf.caliber} onChange={e => setRf(f => ({ ...f, caliber: e.target.value }))} placeholder="3235, Cal.5..." style={inputStyle} /></Field>
-            <Field label="Material">
+            <Field label="Calibre">
+              <input value={rf.caliber}
+                onChange={e => setRf(f => ({ ...f, caliber: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\.\/\s]/g, '') }))}
+                placeholder="Ej. 3235 · ETA 2824 · Cal.5" maxLength={15}
+                style={{ ...inputStyle, fontFamily: "'DM Mono', monospace", letterSpacing: '.03em' }} />
+            </Field>
+            <Field label="Material caja">
               <select value={rf.material} onChange={e => setRf(f => ({ ...f, material: e.target.value }))} style={inputStyle}>
-                {['Acero', 'Oro Amarillo', 'Oro Blanco', 'Oro Rosa', 'Bicolor', 'Platino', 'Titanio', 'Cerámica'].map(x => <option key={x}>{x}</option>)}
+                {['Acero','Oro Amarillo 18k','Oro Blanco 18k','Oro Rosa 18k','Bimetálico','Platino','Titanio','Cerámica','Carbono'].map(x => <option key={x}>{x}</option>)}
               </select>
             </Field>
           </FR>
           <FR>
-            <Field label="Bisel"><input value={rf.bezel} onChange={e => setRf(f => ({ ...f, bezel: e.target.value }))} placeholder="Cerachrom negro..." style={inputStyle} /></Field>
-            <Field label="Esfera"><input value={rf.dial} onChange={e => setRf(f => ({ ...f, dial: e.target.value }))} placeholder="Negra, Sunburst..." style={inputStyle} /></Field>
+            <Field label="Diámetro">
+              <select value={rf.size} onChange={e => setRf(f => ({ ...f, size: e.target.value }))} style={inputStyle}>
+                <option value="">— Sin especificar —</option>
+                {['34mm','36mm','37mm','38mm','39mm','40mm','41mm','42mm','43mm','44mm','45mm','46mm','47mm','50mm','Otro'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Brazalete">
+              <select value={rf.bracelet} onChange={e => setRf(f => ({ ...f, bracelet: e.target.value }))} style={inputStyle}>
+                <option value="">— Sin especificar —</option>
+                {['Oyster','Jubilee','President','Bracelet integrado','Correa cuero','Correa caucho','Correa NATO','Correa tela','Otro'].map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </Field>
           </FR>
           <FR>
-            <Field label="Tamaño"><input value={rf.size} onChange={e => setRf(f => ({ ...f, size: e.target.value }))} placeholder="40mm" style={inputStyle} /></Field>
-            <Field label="Brazalete"><input value={rf.bracelet} onChange={e => setRf(f => ({ ...f, bracelet: e.target.value }))} placeholder="Oyster, Jubilee..." style={inputStyle} /></Field>
+            <Field label="Esfera">
+              <select value={rf.dial} onChange={e => setRf(f => ({ ...f, dial: e.target.value }))} style={inputStyle}>
+                <option value="">— Sin especificar —</option>
+                {['Negra','Blanca','Azul','Gris','Verde','Champagne','Plateada','Marrón','Meteorito','Nácar','Skeletonizada','Smoked','Sunburst azul','Sunburst verde','Otro'].map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </Field>
+            <Field label="Bisel">
+              <select value={rf.bezel} onChange={e => setRf(f => ({ ...f, bezel: e.target.value }))} style={inputStyle}>
+                <option value="">— Sin especificar —</option>
+                {['Liso','Estriado','Cerachrom negro','Cerachrom azul','Cerachrom verde','Cerachrom bicolor','Taquímetro','GMT bicolor','Buceador','Pulsométro','Diamantes','Engastado','Otro'].map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </Field>
           </FR>
           <FR>
-            <Field label="Año aprox."><input type="number" value={rf.year} onChange={e => setRf(f => ({ ...f, year: e.target.value }))} placeholder="2023" style={inputStyle} /></Field>
-            <Field label="Notas"><input value={rf.notes} onChange={e => setRf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones..." style={inputStyle} /></Field>
+            <Field label="Año aprox.">
+              <input type="number" value={rf.year} min={1920} max={new Date().getFullYear()}
+                onChange={e => { const v = e.target.value; if (v === '' || (parseInt(v) >= 1920 && parseInt(v) <= new Date().getFullYear())) setRf(f => ({ ...f, year: v })) }}
+                placeholder={`1920 – ${new Date().getFullYear()}`}
+                style={{ ...inputStyle, fontFamily: "'DM Mono', monospace" }} />
+            </Field>
+            <Field label="Notas">
+              <input value={rf.notes} onChange={e => setRf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones adicionales..." maxLength={100} style={inputStyle} />
+            </Field>
           </FR>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" small onClick={() => setShowRefForm(false)}>Cancelar</Btn>
@@ -2018,17 +2332,32 @@ function InversionistasModule({ state, setState }) {
       ...s,
       socios: (s.socios || []).map(i => i.id !== sel.id ? i : { ...i, movimientos: [...(i.movimientos || []), nuevoMov] })
     }))
-    await db.saveMovimientoSocio(nuevoMov)
-    toast('Movimiento registrado')
-    setShowMov(false)
-    setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
+    try {
+      await db.saveMovimientoSocio(nuevoMov)
+      toast('Movimiento registrado')
+      setShowMov(false)
+      setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
+    } catch (e) {
+      // Rollback
+      setState(s => ({
+        ...s,
+        socios: (s.socios || []).map(i => i.id !== sel.id ? i : { ...i, movimientos: (i.movimientos || []).filter(m => m.id !== nuevoMov.id) })
+      }))
+      toast('Error al registrar movimiento: ' + e.message, 'error')
+    }
   }
 
   const saveEditSocios = async () => {
+    const prev = state.socios
     setState(s => ({ ...s, socios: editSocios }))
-    await Promise.all(editSocios.map(s => db.saveSocio(s)))
-    toast('Configuración de socios guardada')
-    setShowEditSocios(false)
+    try {
+      await Promise.all(editSocios.map(s => db.saveSocio(s)))
+      toast('Configuración de socios guardada')
+      setShowEditSocios(false)
+    } catch (e) {
+      setState(s => ({ ...s, socios: prev }))
+      toast('Error al guardar socios: ' + e.message, 'error')
+    }
   }
 
   const selConMovimientos = sel ? socios.find(s => s.id === sel.id) : null
@@ -2219,47 +2548,65 @@ function ContactosModule({ state, setState }) {
   const openEditProveedor = (p) => { setEditProveedor(p); setPf({ name: p.name, type: p.type || 'Particular', phone: p.phone || '', email: p.email || '', city: p.city || '', notes: p.notes || '', rating: p.rating || 3 }); setShowProveedorForm(true) }
 
   const saveCliente = async () => {
-    if (editCliente) {
-      const updated = { ...editCliente, ...cf }
-      setState(s => ({ ...s, clients: s.clients.map(x => x.id === editCliente.id ? updated : x) }))
-      await db.saveClient(updated)
-      toast('Cliente actualizado correctamente')
-    } else {
-      const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
-      setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
-      await db.saveClient(client)
-      toast('Cliente guardado correctamente')
-    }
-    setShowClienteForm(false)
+    try {
+      if (editCliente) {
+        const updated = { ...editCliente, ...cf }
+        setState(s => ({ ...s, clients: s.clients.map(x => x.id === editCliente.id ? updated : x) }))
+        await db.saveClient(updated)
+        toast('Cliente actualizado correctamente')
+      } else {
+        const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
+        setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
+        await db.saveClient(client)
+        toast('Cliente guardado correctamente')
+      }
+      setShowClienteForm(false)
+    } catch (e) { toast('Error: ' + e.message, 'error') }
   }
 
   const delCliente = async (c) => {
     if (!window.confirm(`¿Eliminar cliente "${c.name}"?`)) return
+    const prev = state.clients
     setState(s => ({ ...s, clients: s.clients.filter(x => x.id !== c.id) }))
-    await sb.from('clients').delete().eq('id', c.id)
-    toast('Cliente eliminado', 'info')
+    try {
+      const { error } = await sb.from('clientes').delete().eq('id', c.id)
+      if (error) throw new Error(error.message)
+      toast('Cliente eliminado', 'info')
+    } catch (e) {
+      setState(s => ({ ...s, clients: prev }))
+      toast('Error al eliminar: ' + e.message, 'error')
+    }
   }
 
   const saveProveedor = async () => {
-    if (editProveedor) {
-      const updated = { ...editProveedor, ...pf, rating: +pf.rating }
-      setState(s => ({ ...s, suppliers: s.suppliers.map(x => x.id === editProveedor.id ? updated : x) }))
-      await db.saveSupplier(updated)
-      toast('Proveedor actualizado correctamente')
-    } else {
-      const supplier = { ...pf, id: 'P' + uid(), rating: +pf.rating, totalDeals: 0 }
-      setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
-      await db.saveSupplier(supplier)
-      toast('Proveedor guardado correctamente')
-    }
-    setShowProveedorForm(false)
+    try {
+      if (editProveedor) {
+        const updated = { ...editProveedor, ...pf, rating: +pf.rating }
+        setState(s => ({ ...s, suppliers: s.suppliers.map(x => x.id === editProveedor.id ? updated : x) }))
+        await db.saveSupplier(updated)
+        toast('Proveedor actualizado correctamente')
+      } else {
+        const supplier = { ...pf, id: 'P' + uid(), rating: +pf.rating, totalDeals: 0 }
+        setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
+        await db.saveSupplier(supplier)
+        toast('Proveedor guardado correctamente')
+      }
+      setShowProveedorForm(false)
+    } catch (e) { toast('Error: ' + e.message, 'error') }
   }
 
   const delProveedor = async (p) => {
     if (!window.confirm(`¿Eliminar proveedor "${p.name}"?`)) return
+    const prev = state.suppliers
     setState(s => ({ ...s, suppliers: s.suppliers.filter(x => x.id !== p.id) }))
-    await sb.from('suppliers').delete().eq('id', p.id)
-    toast('Proveedor eliminado', 'info')
+    try {
+      const { error } = await sb.from('proveedores').delete().eq('id', p.id)
+      if (error) throw new Error(error.message)
+      toast('Proveedor eliminado', 'info')
+    } catch (e) {
+      setState(s => ({ ...s, suppliers: prev }))
+      toast('Error al eliminar: ' + e.message, 'error')
+    }
   }
 
   const actionBtn = (color = TM) => ({
@@ -2486,40 +2833,59 @@ function AuthScreen({ onAuth }) {
   }
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background: BG }}>
-      <div style={{ animation:'fi .5s ease', width:360, padding:40, background:'#1A1A1A', border:'1px solid #2A2A2A', borderRadius:8 }}>
-        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:28, color: G, textAlign:'center', marginBottom:4 }}>The Wrist Room</div>
-        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.3em', textAlign:'center', marginBottom:32 }}>SISTEMA OPERATIVO</div>
-
-        <div style={{ display:'flex', marginBottom:24, background:'#111', borderRadius:4, padding:3 }}>
-          {['login','register'].map(m => (
-            <button key={m} onClick={() => { setMode(m); setError('') }}
-              style={{ flex:1, padding:'8px 0', background: mode===m ? '#2A2A2A' : 'transparent', border:'none', color: mode===m ? G : TD,
-                       fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer', borderRadius:3, transition:'all .2s' }}>
-              {m === 'login' ? 'ACCEDER' : 'REGISTRAR'}
-            </button>
-          ))}
+    <div style={{ display:'flex', height:'100vh', background: BG }}>
+      {/* Left panel — branding */}
+      <div style={{ flex: 1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background: S1, borderRight:`1px solid ${BR}`, padding:60 }}>
+        <svg width="72" height="72" viewBox="0 0 80 80" fill="none" style={{ marginBottom: 28 }}>
+          <line x1="14" y1="10" x2="32" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="32" y1="58" x2="42" y2="30" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="42" y1="30" x2="52" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="52" y1="58" x2="68" y2="10" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="14" y1="10" x2="24" y2="68" stroke={G} strokeWidth="3" strokeLinecap="round"/>
+          <circle cx="24" cy="70" r="3.5" fill={G}/>
+        </svg>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:12, color:TM, letterSpacing:'.4em', textTransform:'uppercase', marginBottom:6 }}>The</div>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:38, color:TX, letterSpacing:'.18em', fontWeight:600, lineHeight:1, marginBottom:6 }}>Wrist Room</div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.3em', marginTop:8 }}>SISTEMA OPERATIVO · TWR OS</div>
+        <div style={{ marginTop:48, fontFamily:"'Jost',sans-serif", fontSize:13, color:TM, textAlign:'center', lineHeight:1.8, maxWidth:280 }}>
+          Plataforma privada de gestión<br/>de inventario y capital · México
         </div>
+      </div>
+      {/* Right panel — form */}
+      <div style={{ width:400, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'48px 40px', animation:'fi .5s ease' }}>
+        <div style={{ width:'100%', maxWidth:320 }}>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM, letterSpacing:'.2em', marginBottom:24 }}>ACCESO AL SISTEMA</div>
 
-        <div style={{ marginBottom:16 }}>
-          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.2em', marginBottom:6 }}>CORREO</div>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handle()} placeholder="usuario@thewristroom.com" />
+          <div style={{ display:'flex', marginBottom:24, background:S1, borderRadius:4, padding:3, border:`1px solid ${BR}` }}>
+            {['login','register'].map(m => (
+              <button key={m} onClick={() => { setMode(m); setError('') }}
+                style={{ flex:1, padding:'8px 0', background: mode===m ? BRG : 'transparent', border:'none', color: mode===m ? G : TD,
+                         fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer', borderRadius:3, transition:'all .2s' }}>
+                {m === 'login' ? 'ACCEDER' : 'REGISTRAR'}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, letterSpacing:'.2em', marginBottom:6 }}>CORREO</div>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handle()} placeholder="usuario@thewristroom.com" />
+          </div>
+          <div style={{ marginBottom:28 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, letterSpacing:'.2em', marginBottom:6 }}>CONTRASEÑA</div>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handle()} placeholder="••••••••" />
+          </div>
+
+          {error && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:RED, marginBottom:16, padding:'10px 14px', background:RED+'18', borderRadius:4, border:`1px solid ${RED}44` }}>{error}</div>}
+
+          <button onClick={handle} disabled={loading || !email || !password}
+            style={{ width:'100%', padding:'13px 0', background: loading ? BRG : G, border:'none', borderRadius:4,
+                     color: loading ? TM : BG, fontFamily:"'DM Mono',monospace", fontSize:11, letterSpacing:'.2em',
+                     cursor: loading || !email || !password ? 'not-allowed' : 'pointer', opacity: (!email || !password) ? .5 : 1, transition:'all .2s', fontWeight:700 }}>
+            {loading ? 'PROCESANDO...' : mode === 'login' ? 'ACCEDER' : 'CREAR CUENTA'}
+          </button>
         </div>
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.2em', marginBottom:6 }}>CONTRASEÑA</div>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handle()} placeholder="••••••••" />
-        </div>
-
-        {error && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:'#E05A5A', marginBottom:16, textAlign:'center' }}>{error}</div>}
-
-        <button onClick={handle} disabled={loading || !email || !password}
-          style={{ width:'100%', padding:'12px 0', background: loading ? '#2A2A2A' : G, border:'none', borderRadius:4,
-                   color:'#111', fontFamily:"'DM Mono',monospace", fontSize:11, letterSpacing:'.2em',
-                   cursor: loading || !email || !password ? 'not-allowed' : 'pointer', opacity: loading ? .6 : 1, transition:'all .2s' }}>
-          {loading ? 'PROCESANDO...' : mode === 'login' ? 'ACCEDER AL SISTEMA' : 'CREAR CUENTA'}
-        </button>
       </div>
     </div>
   )
@@ -2529,21 +2895,29 @@ function AuthScreen({ onAuth }) {
 function PendingScreen({ user, onLogout }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background: BG }}>
-      <div style={{ animation:'fi .5s ease', width:400, padding:40, background:'#1A1A1A', border:'1px solid #2A2A2A', borderRadius:8, textAlign:'center' }}>
-        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:28, color: G, marginBottom:4 }}>The Wrist Room</div>
-        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: TD, letterSpacing:'.3em', marginBottom:32 }}>ACCESO PENDIENTE</div>
-        <div style={{ width:48, height:48, borderRadius:'50%', background:'#2A2A2A', display:'flex', alignItems:'center', justifyContent:'center',
-                      margin:'0 auto 24px', fontSize:22 }}>⏳</div>
-        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:14, color:'#C0B090', marginBottom:12, lineHeight:1.6 }}>
-          Tu cuenta ha sido creada exitosamente.
-        </div>
-        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color: TD, marginBottom:8 }}>{user?.email}</div>
-        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:13, color: TD, marginBottom:32, lineHeight:1.6 }}>
+      <div style={{ animation:'fi .5s ease', width:420, padding:'48px 40px', background:S1, border:`1px solid ${BR}`, borderRadius:8, textAlign:'center' }}>
+        <svg width="44" height="44" viewBox="0 0 80 80" fill="none" style={{ marginBottom: 20 }}>
+          <line x1="14" y1="10" x2="32" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="32" y1="58" x2="42" y2="30" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="42" y1="30" x2="52" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="52" y1="58" x2="68" y2="10" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+          <line x1="14" y1="10" x2="24" y2="68" stroke={G} strokeWidth="3" strokeLinecap="round"/>
+          <circle cx="24" cy="70" r="3.5" fill={G}/>
+        </svg>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:26, color:TX, letterSpacing:'.12em', fontWeight:600, marginBottom:4 }}>The Wrist Room</div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, letterSpacing:'.3em', marginBottom:28 }}>ACCESO PENDIENTE</div>
+        <div style={{ width:44, height:44, borderRadius:'50%', background:S3, border:`1px solid ${BR}`, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', fontSize:20 }}>⏳</div>
+        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:14, color:TX, marginBottom:8, lineHeight:1.6 }}>Tu cuenta ha sido creada exitosamente.</div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM, marginBottom:10 }}>{user?.email}</div>
+        <div style={{ fontFamily:"'Jost',sans-serif", fontSize:13, color:TM, marginBottom:32, lineHeight:1.7 }}>
           Un Director debe asignarte un rol antes de que puedas acceder al sistema.
         </div>
         <button onClick={onLogout}
-          style={{ padding:'10px 24px', background:'transparent', border:'1px solid #2A2A2A', borderRadius:4,
-                   color: TD, fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer' }}>
+          style={{ padding:'10px 28px', background:'transparent', border:`1px solid ${BR}`, borderRadius:4,
+                   color:TM, fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer',
+                   transition:'all .2s' }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = G; e.currentTarget.style.color = G }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = BR; e.currentTarget.style.color = TM }}>
           CERRAR SESIÓN
         </button>
       </div>
@@ -2573,26 +2947,46 @@ function AdminModule({ currentUser }) {
 
   const saveUser = async () => {
     const updated = { ...editUser, ...uf }
-    await sb.from('profiles').update({ name: uf.name, role: uf.role, active: uf.active }).eq('id', editUser.id)
+    const prev = users
     setUsers(us => us.map(x => x.id === editUser.id ? updated : x))
-    toast(`Usuario "${uf.name || editUser.email}" actualizado`)
-    setEditUser(null)
+    try {
+      const { error } = await sb.from('profiles').update({ name: uf.name, role: uf.role, active: uf.active }).eq('id', editUser.id)
+      if (error) throw new Error(error.message)
+      toast(`Usuario "${uf.name || editUser.email}" actualizado`)
+      setEditUser(null)
+    } catch (e) {
+      setUsers(prev)
+      toast('Error al actualizar usuario: ' + e.message, 'error')
+    }
   }
 
   const toggleActive = async (u) => {
     if (u.id === currentUser?.id) return
     const active = !u.active
-    await sb.from('profiles').update({ active }).eq('id', u.id)
     setUsers(us => us.map(x => x.id === u.id ? { ...x, active } : x))
-    toast(active ? 'Usuario activado' : 'Usuario desactivado', 'info')
+    try {
+      const { error } = await sb.from('profiles').update({ active }).eq('id', u.id)
+      if (error) throw new Error(error.message)
+      toast(active ? 'Usuario activado' : 'Usuario desactivado', 'info')
+    } catch (e) {
+      setUsers(us => us.map(x => x.id === u.id ? { ...x, active: !active } : x))
+      toast('Error: ' + e.message, 'error')
+    }
   }
 
   const delUser = async (u) => {
     if (u.id === currentUser?.id) return
     if (!window.confirm(`¿Eliminar acceso de "${u.email}"? Esta acción no se puede deshacer.`)) return
-    await sb.from('profiles').delete().eq('id', u.id)
+    const prev = users
     setUsers(us => us.filter(x => x.id !== u.id))
-    toast('Usuario eliminado del sistema', 'info')
+    try {
+      const { error } = await sb.from('profiles').delete().eq('id', u.id)
+      if (error) throw new Error(error.message)
+      toast('Usuario eliminado del sistema', 'info')
+    } catch (e) {
+      setUsers(prev)
+      toast('Error al eliminar usuario: ' + e.message, 'error')
+    }
   }
 
   const roleColor = { director: G, operador: BLU, inversionista: GRN, pending: TM }
@@ -2825,11 +3219,22 @@ export default function App() {
 
   // Loading
   if (authLoading || dbLoading) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG, gap: 16 }}>
-      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}`}</style>
-      <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: G }}>The Wrist Room</div>
-      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, letterSpacing: '.25em', animation: 'pulse 1.5s infinite' }}>
-        {dbLoading ? 'CARGANDO DATOS...' : 'TWR OS...'}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: BG, gap: 20 }}>
+      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+      <svg width="54" height="54" viewBox="0 0 80 80" fill="none">
+        <line x1="14" y1="10" x2="32" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+        <line x1="32" y1="58" x2="42" y2="30" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+        <line x1="42" y1="30" x2="52" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+        <line x1="52" y1="58" x2="68" y2="10" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+        <line x1="14" y1="10" x2="24" y2="68" stroke={G} strokeWidth="3" strokeLinecap="round"/>
+        <circle cx="24" cy="70" r="3.5" fill={G}/>
+      </svg>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 11, color: TM, letterSpacing: '.35em', textTransform: 'uppercase', marginBottom: 4 }}>The</div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, color: TX, letterSpacing: '.15em', fontWeight: 600 }}>Wrist Room</div>
+      </div>
+      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.3em', animation: 'pulse 1.5s infinite' }}>
+        {dbLoading ? 'CARGANDO DATOS...' : 'INICIANDO SISTEMA...'}
       </div>
     </div>
   )
@@ -2837,7 +3242,7 @@ export default function App() {
   // Not logged in
   if (!authUser) return (
     <>
-      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} input,select{background:#222;border:1px solid #2A2A2A;color:#E8E2D5;padding:10px 14px;border-radius:4px;font-family:'Jost',sans-serif;font-size:13px;width:100%;outline:none;transition:border-color .2s} input:focus,select:focus{border-color:#C9A96E}`}</style>
+      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} input,select{background:${S3};border:1px solid ${BR};color:${TX};padding:10px 14px;border-radius:4px;font-family:'Jost',sans-serif;font-size:13px;width:100%;outline:none;transition:border-color .2s} input:focus,select:focus{border-color:${G}}`}</style>
       <AuthScreen onAuth={(u, p) => { setAuthUser(u); setProfile(p || { role: 'pending' }) }} />
     </>
   )
@@ -2873,18 +3278,41 @@ export default function App() {
     <>
       <style>{`
         @keyframes fi { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: ${BG}; }
+        ::-webkit-scrollbar-thumb { background: ${BR}; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: ${BRG}; }
+        ::selection { background: ${G}33; color: ${TX}; }
         input, select, textarea { background:${S3}; border:1px solid ${BR}; color:${TX}; padding:10px 14px; border-radius:4px; font-family:'Jost',sans-serif; font-size:13px; width:100%; outline:none; transition:border-color .2s; }
-        input:focus, select:focus, textarea:focus { border-color:${G}; }
+        input:focus, select:focus, textarea:focus { border-color:${G}; box-shadow: 0 0 0 3px ${G}18; }
         input::placeholder, textarea::placeholder { color:${TD}; }
-        select option { background:${S3}; }
+        select option { background:${S2}; color:${TX}; }
         label { display:block; font-family:'DM Mono',monospace; font-size:10px; color:${TM}; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
       `}</style>
       <div style={{ display: 'flex', height: '100vh', background: BG, color: TX, fontFamily: "'Jost', sans-serif", overflow: 'hidden' }}>
         {/* Sidebar */}
         <div style={{ width: 210, background: S1, borderRight: `1px solid ${BR}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-          <div style={{ padding: '22px 20px 16px', borderBottom: `1px solid ${BR}` }}>
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, color: G, lineHeight: 1.1 }}>The Wrist Room</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', marginTop: 4 }}>TWR OS · v4.0</div>
+          <div style={{ padding: '20px 18px 16px', borderBottom: `1px solid ${BR}` }}>
+            {/* TWR Brand Mark */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <svg width="32" height="32" viewBox="0 0 80 80" fill="none">
+                {/* Watch hand / W mark */}
+                <line x1="14" y1="10" x2="32" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+                <line x1="32" y1="58" x2="42" y2="30" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+                <line x1="42" y1="30" x2="52" y2="58" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+                <line x1="52" y1="58" x2="68" y2="10" stroke="white" strokeWidth="5.5" strokeLinecap="round"/>
+                {/* Watch hand needle overlapping left stroke */}
+                <line x1="14" y1="10" x2="24" y2="68" stroke={G} strokeWidth="3" strokeLinecap="round"/>
+                <circle cx="24" cy="70" r="3.5" fill={G}/>
+              </svg>
+              <div>
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 11, color: TM, letterSpacing: '.25em', textTransform: 'uppercase', lineHeight: 1 }}>The</div>
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, letterSpacing: '.12em', fontWeight: 600, lineHeight: 1, marginTop: 1 }}>Wrist Room</div>
+              </div>
+            </div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v6.0</div>
           </div>
           <nav style={{ padding: '8px 0', flex: 1, overflowY: 'auto' }}>
             {allowedNav.map(item => {
