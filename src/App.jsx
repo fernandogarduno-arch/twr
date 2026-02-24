@@ -80,6 +80,26 @@ const logAction = (action, module, entity, description, entityId = null) => {
   }).then(() => {})  // intentionally silent — never throw
 }
 
+// ── DB watchdog — timeout + console logging for every db call ──
+const DB_TIMEOUT_MS = 12000
+function withTimeout(fn, name) {
+  return async function(...args) {
+    const t0 = performance.now()
+    console.log(`[TWR DB] ⏳ ${name}`, ...args.map(a => typeof a === 'object' ? JSON.stringify(a).slice(0,120) : a))
+    const timeout = new Promise((_, rej) =>
+      setTimeout(() => rej(new Error(`[TWR DB] ⏰ TIMEOUT (${DB_TIMEOUT_MS/1000}s) en ${name} — verifica RLS y conexión`)), DB_TIMEOUT_MS)
+    )
+    try {
+      const result = await Promise.race([fn.apply(this, args), timeout])
+      console.log(`[TWR DB] ✓ ${name} (${Math.round(performance.now()-t0)}ms)`)
+      return result
+    } catch(e) {
+      console.error(`[TWR DB] ✗ ${name} (${Math.round(performance.now()-t0)}ms) →`, e.message)
+      throw e
+    }
+  }
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 const DEMO = {
@@ -88,6 +108,9 @@ const DEMO = {
   clients: [],
   fotos: [],   // [{ id, piezaId, posicion, url, storagePath, createdAt }]
   docs:  [],   // [{ id, entidadTipo, entidadId, tipo, nombreArchivo, url, storagePath, verificado, fechaVerificacion, verificadoPor }]
+  customMaterials: [],
+  customDials: [],
+  customBezels: [],
   // Socios configurables (no hardcodeados)
   socios: [
     { id: 'S1', name: 'Fernando Garduño', participacion: 40, color: '#C9A96E', activo: true },
@@ -166,7 +189,7 @@ const db = {
       id: w.id, ref_id: w.refId, supplier_id: w.supplierId,
       serial: w.serial || null, condition: w.condition,
       full_set: w.fullSet, papers: w.papers, box: w.box,
-      cost: w.cost || 0, price_asked: w.priceAsked || 0,
+      cost: w.cost || 0, price_dealer: w.priceDealer || 0, price_asked: w.priceAsked || 0,
       entry_date: w.entryDate || null, status: w.status,
       stage: w.stage, validated_by: w.validatedBy || null,
       validation_date: w.validationDate || null, notes: w.notes || null,
@@ -361,6 +384,13 @@ const mediaDb = {
     if (error) throw new Error(error.message)
   },
 }
+
+// Wrap every db method with timeout + logging automatically
+Object.keys(db).forEach(key => {
+  if (typeof db[key] === 'function') {
+    db[key] = withTimeout(db[key].bind(db), key)
+  }
+})
 // ══════════════════════════════════════════════════════════════════════════════
 function QuickCreate({ title, onClose, children, error, saving }) {
   return (
@@ -588,9 +618,11 @@ function Field({ label, children, style: extraStyle }) {
 }
 
 // Form Row — flex row with gap
-function FR({ children, gap = 12 }) {
-  return <div style={{ display:'flex', gap, marginBottom:14, flexWrap:'wrap' }}>{children}</div>
+function FR({ children, gap = 12, cols }) {
+  const count = cols || React.Children.count(children)
+  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${count}, 1fr)`, gap, marginBottom: 14 }}>{children}</div>
 }
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  MEDIA VIEWER — fullscreen modal for images and PDFs (v8)
@@ -1241,6 +1273,69 @@ function PublicCatalog() {
   )
 }
 
+// ── Modal de confirmación con razón obligatoria ────────────────────────────
+function ReasonModal({ title, subtitle, label = "Razón *", placeholder = "Escribe la razón...", onConfirm, onClose, confirmLabel = "Confirmar", confirmColor = RED }) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const canConfirm = reason.trim().length >= 5
+
+  const handleConfirm = async () => {
+    if (!canConfirm || saving) return
+    setSaving(true)
+    await onConfirm(reason.trim())
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'#00000099', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:S1, border:`1px solid ${BR}`, borderRadius:10, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px #00000066' }}>
+        {/* Header */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:20, color:TX, marginBottom:4 }}>{title}</div>
+          {subtitle && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM, letterSpacing:'.1em' }}>{subtitle}</div>}
+        </div>
+
+        {/* Warning banner */}
+        <div style={{ background:RED+'11', border:`1px solid ${RED}44`, borderRadius:6, padding:'10px 14px', marginBottom:18, display:'flex', gap:10, alignItems:'flex-start' }}>
+          <span style={{ color:RED, fontSize:14, marginTop:1 }}>⚠</span>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:RED, letterSpacing:'.08em', lineHeight:1.6 }}>
+            ESTA ACCIÓN QUEDARÁ REGISTRADA EN EL LOG DE AUDITORÍA.<br/>
+            LA RAZÓN ES OBLIGATORIA PARA GARANTIZAR TRAZABILIDAD.
+          </div>
+        </div>
+
+        {/* Reason input */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, letterSpacing:'.12em', marginBottom:7 }}>{label}</div>
+          <textarea
+            autoFocus
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder={placeholder}
+            rows={3}
+            style={{ width:'100%', background:S3, border:`1px solid ${reason.trim().length >= 5 ? G+'66' : BR}`, color:TX, padding:'10px 14px', borderRadius:6, fontFamily:"'Jost',sans-serif", fontSize:13, outline:'none', resize:'vertical', boxSizing:'border-box', transition:'border-color .2s' }}
+          />
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color: reason.trim().length >= 5 ? G : TD, marginTop:5, letterSpacing:'.08em' }}>
+            {reason.trim().length < 5
+              ? `Mínimo 5 caracteres (${reason.trim().length}/5)`
+              : `✓ ${reason.trim().length} caracteres`}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+          <Btn variant="secondary" small onClick={onClose} disabled={saving}>Cancelar</Btn>
+          <Btn small onClick={handleConfirm} disabled={!canConfirm || saving}
+            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? WHITE : TD, border:'none' }}>
+            {saving ? 'Procesando...' : confirmLabel}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Info row for detail panels
 function InfoRow({ label, value, color }) {
   return (
@@ -1613,8 +1708,9 @@ function InventarioModule({ state, setState }) {
   const [showEdit, setShowEdit]   = useState(false)
   const [editForm, setEditForm]   = useState({})
   const [editSaving, setEditSaving] = useState(false)
+  const [showBajaPieza, setShowBajaPieza] = useState(false)
 
-  const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
+  const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceDealer: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
   const [wf, setWf] = useState({ ...blank })
   const [sf, setSf] = useState({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
   const [pf, setPf] = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
@@ -1757,14 +1853,11 @@ function InventarioModule({ state, setState }) {
     setWatchSaving(true)
     const id = 'W' + uid()
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
-    const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }
+    const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceDealer: +wf.priceDealer || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }
     // Optimistic update
     setState(s => ({ ...s, watches: [...s.watches, watch] }))
     try {
-      // Timeout protection — if Supabase hangs >15s, fail gracefully
-      const savePromise = db.saveWatch(watch)
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Tiempo de espera agotado — verifica tu conexión')), 15000))
-      await Promise.race([savePromise, timeout])
+      await db.saveWatch(watch)
       logAction('create', 'inventario', 'pieza', `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)}`, watch.id)
       toast('Pieza registrada en inventario')
       setShowAdd(false)
@@ -1782,7 +1875,7 @@ function InventarioModule({ state, setState }) {
   const saveEdit = async () => {
     if (editSaving || !selWatch) return
     // Build diff — only changed fields
-    const LABELS = { serial:'Número de Serie', condition:'Condición', cost:'Costo', priceAsked:'Precio Pedido', entryDate:'Fecha Ingreso', notes:'Notas', fullSet:'Full Set', papers:'Papeles', box:'Caja' }
+    const LABELS = { serial:'Número de Serie', condition:'Condición', cost:'Costo', priceDealer:'Precio Dealer', priceAsked:'Precio Público', entryDate:'Fecha Ingreso', notes:'Notas', fullSet:'Full Set', papers:'Papeles', box:'Caja' }
     const diffs = Object.entries(editForm).filter(([k, v]) => {
       const before = selWatch[k]
       if (typeof v === 'boolean') return v !== before
@@ -1797,15 +1890,16 @@ function InventarioModule({ state, setState }) {
     try {
       // Map app fields → DB columns
       const dbFields = {}
-      if (editForm.serial      !== undefined) dbFields.serial       = editForm.serial || null
-      if (editForm.condition   !== undefined) dbFields.condition    = editForm.condition
-      if (editForm.cost        !== undefined) dbFields.cost         = +editForm.cost || 0
-      if (editForm.priceAsked  !== undefined) dbFields.price_asked  = +editForm.priceAsked || 0
-      if (editForm.entryDate   !== undefined) dbFields.entry_date   = editForm.entryDate || null
-      if (editForm.notes       !== undefined) dbFields.notes        = editForm.notes || null
-      if (editForm.fullSet     !== undefined) dbFields.full_set     = editForm.fullSet
-      if (editForm.papers      !== undefined) dbFields.papers       = editForm.papers
-      if (editForm.box         !== undefined) dbFields.box          = editForm.box
+      if (editForm.serial      !== undefined) dbFields.serial        = editForm.serial || null
+      if (editForm.condition   !== undefined) dbFields.condition     = editForm.condition
+      if (editForm.cost        !== undefined) dbFields.cost          = +editForm.cost || 0
+      if (editForm.priceDealer !== undefined) dbFields.price_dealer  = +editForm.priceDealer || 0
+      if (editForm.priceAsked  !== undefined) dbFields.price_asked   = +editForm.priceAsked || 0
+      if (editForm.entryDate   !== undefined) dbFields.entry_date    = editForm.entryDate || null
+      if (editForm.notes       !== undefined) dbFields.notes         = editForm.notes || null
+      if (editForm.fullSet     !== undefined) dbFields.full_set      = editForm.fullSet
+      if (editForm.papers      !== undefined) dbFields.papers        = editForm.papers
+      if (editForm.box         !== undefined) dbFields.box           = editForm.box
 
       await db.updateWatch(selWatch.id, dbFields)
 
@@ -1816,7 +1910,7 @@ function InventarioModule({ state, setState }) {
       ))
 
       // Update local state
-      const updated = { ...selWatch, ...editForm, cost: +editForm.cost || selWatch.cost, priceAsked: +editForm.priceAsked || selWatch.priceAsked }
+      const updated = { ...selWatch, ...editForm, cost: +editForm.cost || selWatch.cost, priceDealer: +editForm.priceDealer || selWatch.priceDealer || 0, priceAsked: +editForm.priceAsked || selWatch.priceAsked }
       setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
       setSelWatch(updated)
       logAction('edit', 'inventario', 'pieza', `Editó ${diffs.length} campo(s): ${diffs.map(([k])=>LABELS[k]||k).join(', ')}`, selWatch.id)
@@ -1826,6 +1920,23 @@ function InventarioModule({ state, setState }) {
       toast('Error al guardar: ' + e.message, 'error')
     }
     setEditSaving(false)
+  }
+
+  const confirmBajaPieza = async (razon) => {
+    if (!selWatch) return
+    const updated = { ...selWatch, stage: 'baja', status: 'Baja', notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}` }
+    setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
+    try {
+      await db.updateWatch(selWatch.id, { stage: 'baja', status: 'Baja', notes: updated.notes })
+      await db.savePiezaEdit({ piezaId: selWatch.id, campo: 'Baja', valorAntes: selWatch.stage, valorDespues: 'baja', editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario' })
+      logAction('delete', 'inventario', 'pieza', `Dio de baja pieza "${selWatch.serial || selWatch.id}" · Razón: ${razon}`, selWatch.id)
+      toast('Pieza dada de baja · registrada en historial', 'info')
+      setSelWatch(null)
+      setShowBajaPieza(false)
+    } catch(e) {
+      setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : selWatch) }))
+      toast('Error: ' + e.message, 'error')
+    }
   }
 
   const saveAdditionalCost = async () => {
@@ -2040,9 +2151,11 @@ function InventarioModule({ state, setState }) {
               <InfoRow label="Caja"     value={selWatch.box     === null ? '—' : selWatch.box     ? 'Sí' : 'No'} color={selWatch.box     ? GRN : RED} />
               <Divider label="FINANCIERO" />
               <InfoRow label="Costo" value={selWatch.cost ? fmt(selWatch.cost) : '—'} />
-              {selWatch.priceAsked > 0 && <InfoRow label="Precio pedido" value={fmt(selWatch.priceAsked)} color={TM} />}
-              {selSale && <InfoRow label="Precio venta" value={fmt(selSale.agreedPrice)} color={G} />}
-              {selWatch.cost && selSale && <InfoRow label="Utilidad bruta" value={'+' + fmt(selSale.agreedPrice - selWatch.cost)} color={GRN} />}
+              {selWatch.cost > 0 && <InfoRow label="Costo" value={fmt(selWatch.cost)} color={RED} />}
+              {selWatch.priceDealer > 0 && <InfoRow label="Precio dealer" value={fmt(selWatch.priceDealer)} color={TM} />}
+              {selWatch.priceAsked > 0 && <InfoRow label="Precio público" value={fmt(selWatch.priceAsked)} color={G} />}
+              {selSale && <InfoRow label="Precio venta" value={fmt(selSale.agreedPrice)} color={GRN} />}
+              {selWatch.cost > 0 && selSale && <InfoRow label="Utilidad bruta" value={'+' + fmt(selSale.agreedPrice - selWatch.cost)} color={GRN} />}
             </div>
           </FR>
 
@@ -2170,14 +2283,24 @@ function InventarioModule({ state, setState }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8, paddingTop: 14, borderTop: `1px solid ${BR}` }}>
-            {selWatch.stage !== 'liquidado' && (
-              <Btn variant="ghost" small onClick={() => { setEditForm({ serial: selWatch.serial||'', condition: selWatch.condition, cost: selWatch.cost, priceAsked: selWatch.priceAsked, entryDate: selWatch.entryDate, notes: selWatch.notes||'', fullSet: selWatch.fullSet, papers: selWatch.papers, box: selWatch.box }); setShowEdit(true) }}>
-                ✎ Editar Pieza
-              </Btn>
-            )}
-            {selWatch.stage === 'oportunidad' && <Btn variant="ghost" small onClick={() => approve(selWatch)}>✓ Aprobar → Inventario</Btn>}
-            {selWatch.stage === 'inventario' && !selSale && <Btn small onClick={() => setShowSale(true)}>Registrar Venta</Btn>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 8, paddingTop: 14, borderTop: `1px solid ${BR}` }}>
+            <div>
+              {selWatch.stage !== 'liquidado' && selWatch.stage !== 'baja' && (
+                <Btn variant="ghost" small onClick={() => setShowBajaPieza(true)}
+                  style={{ color: RED, borderColor: RED + '44' }}>
+                  ✕ Dar de Baja
+                </Btn>
+              )}
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              {selWatch.stage !== 'liquidado' && selWatch.stage !== 'baja' && (
+                <Btn variant="ghost" small onClick={() => { setEditForm({ serial: selWatch.serial||'', condition: selWatch.condition, cost: selWatch.cost, priceDealer: selWatch.priceDealer||0, priceAsked: selWatch.priceAsked, entryDate: selWatch.entryDate, notes: selWatch.notes||'', fullSet: selWatch.fullSet, papers: selWatch.papers, box: selWatch.box }); setShowEdit(true) }}>
+                  ✎ Editar Pieza
+                </Btn>
+              )}
+              {selWatch.stage === 'oportunidad' && <Btn variant="ghost" small onClick={() => approve(selWatch)}>✓ Aprobar → Inventario</Btn>}
+              {selWatch.stage === 'inventario' && !selSale && <Btn small onClick={() => { setSf({ clientId: '', saleDate: tod(), agreedPrice: selWatch.priceAsked || '', notes: '' }); setShowSale(true) }}>Registrar Venta</Btn>}
+            </div>
           </div>
 
           {/* ── EDIT FORM ── */}
@@ -2194,11 +2317,14 @@ function InventarioModule({ state, setState }) {
                   </select>
                 </Field>
               </FR>
-              <FR>
+              <FR cols={3}>
                 <Field label="Costo (MXN)">
                   <input type="number" value={editForm.cost} onChange={e => setEditForm(f => ({ ...f, cost: e.target.value }))} placeholder="0" style={inputStyle} />
                 </Field>
-                <Field label="Precio Pedido (MXN)">
+                <Field label="Precio Dealer (MXN)">
+                  <input type="number" value={editForm.priceDealer||''} onChange={e => setEditForm(f => ({ ...f, priceDealer: e.target.value }))} placeholder="0" style={inputStyle} />
+                </Field>
+                <Field label="Precio Público (MXN)">
                   <input type="number" value={editForm.priceAsked} onChange={e => setEditForm(f => ({ ...f, priceAsked: e.target.value }))} placeholder="0" style={inputStyle} />
                 </Field>
               </FR>
@@ -2253,9 +2379,23 @@ function InventarioModule({ state, setState }) {
       {/* SALE FORM */}
       {showSale && selWatch && (
         <Modal title="Registrar Venta" onClose={() => setShowSale(false)} width={520}>
-          <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 16 }}>
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX }}>{selBrand?.name} {selModel?.name} · {selRef?.ref}</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>Costo: {fmt(selWatch.cost)}</div>
+          {/* Resumen de precios */}
+          <div style={{ background: S3, borderRadius: 4, padding: '12px 14px', marginBottom: 16 }}>
+            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, marginBottom: 8 }}>{selBrand?.name} {selModel?.name} · {selRef?.ref}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em', marginBottom: 3 }}>COSTO</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: RED }}>{fmt(selWatch.cost)}</div>
+              </div>
+              <div style={{ textAlign: 'center', borderLeft: `1px solid ${BR}`, borderRight: `1px solid ${BR}` }}>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em', marginBottom: 3 }}>PRECIO DEALER</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: TM }}>{selWatch.priceDealer > 0 ? fmt(selWatch.priceDealer) : '—'}</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em', marginBottom: 3 }}>PRECIO PÚBLICO</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: G }}>{selWatch.priceAsked > 0 ? fmt(selWatch.priceAsked) : '—'}</div>
+              </div>
+            </div>
           </div>
           <FR>
             <SelectWithCreate label="Cliente *" value={sf.clientId} onChange={v => setSf(f => ({ ...f, clientId: v }))}
@@ -2263,9 +2403,19 @@ function InventarioModule({ state, setState }) {
               onClickCreate={() => { setQc('client'); setQf({}); setQcError(''); setQcSaving(false) }} createLabel="Nuevo cliente" />
             <Field label="Fecha"><input type="date" value={sf.saleDate} onChange={e => setSf(f => ({ ...f, saleDate: e.target.value }))} style={inputStyle} /></Field>
           </FR>
-          <FR cols={1}><Field label="Precio acordado (MXN)" required>
-            <input type="number" value={sf.agreedPrice} onChange={e => setSf(f => ({ ...f, agreedPrice: e.target.value }))} placeholder="0" style={inputStyle} />
-            {sf.agreedPrice && selWatch.cost && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: GRN, marginTop: 4 }}>Utilidad bruta: +{fmt(+sf.agreedPrice - selWatch.cost)} ({((+sf.agreedPrice - selWatch.cost) / selWatch.cost * 100).toFixed(1)}%)</div>}
+          <FR cols={1}><Field label="Precio de venta (MXN) *" required>
+            <input type="number" value={sf.agreedPrice} onChange={e => setSf(f => ({ ...f, agreedPrice: e.target.value }))} placeholder="0" style={{ ...inputStyle, border: `1px solid ${G}66`, fontSize: 15 }} />
+            {sf.agreedPrice && selWatch.cost > 0 && (
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, marginTop: 5, display:'flex', gap:16 }}>
+                <span style={{ color: GRN }}>Utilidad: +{fmt(+sf.agreedPrice - selWatch.cost)} ({((+sf.agreedPrice - selWatch.cost) / selWatch.cost * 100).toFixed(1)}%)</span>
+                {selWatch.priceAsked > 0 && +sf.agreedPrice < selWatch.priceAsked && (
+                  <span style={{ color: RED }}>↓ {fmt(selWatch.priceAsked - +sf.agreedPrice)} bajo precio público</span>
+                )}
+                {selWatch.priceDealer > 0 && +sf.agreedPrice < selWatch.priceDealer && (
+                  <span style={{ color: RED }}>⚠ bajo precio dealer</span>
+                )}
+              </div>
+            )}
           </Field></FR>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
             <Btn variant="secondary" small onClick={() => setShowSale(false)} disabled={watchSaving}>Cancelar</Btn>
@@ -2321,13 +2471,19 @@ function InventarioModule({ state, setState }) {
               </label>
             ))}
           </div>
-          <FR>
+          <FR cols={3}>
             <Field label="Costo (MXN)"><input type="number" value={wf.cost} onChange={e => setWf(f => ({ ...f, cost: e.target.value }))} placeholder="0" style={inputStyle} /></Field>
-            <Field label="Precio pedido"><input type="number" value={wf.priceAsked} onChange={e => setWf(f => ({ ...f, priceAsked: e.target.value }))} placeholder="0" style={inputStyle} /></Field>
+            <Field label="Precio Dealer">
+              <input type="number" value={wf.priceDealer} onChange={e => setWf(f => ({ ...f, priceDealer: e.target.value }))} placeholder="0" style={inputStyle} />
+            </Field>
+            <Field label="Precio Público">
+              <input type="number" value={wf.priceAsked} onChange={e => setWf(f => ({ ...f, priceAsked: e.target.value }))} placeholder="0" style={inputStyle} />
+            </Field>
           </FR>
           {wf.cost && wf.priceAsked && (
-            <div style={{ background: GRN + '11', border: `1px solid ${GRN}33`, borderRadius: 3, padding: '6px 12px', marginBottom: 10, fontFamily: "'DM Mono', monospace", fontSize: 11, color: GRN }}>
-              Margen potencial: +{fmt(wf.priceAsked - wf.cost)} ({((wf.priceAsked - wf.cost) / wf.cost * 100).toFixed(1)}%)
+            <div style={{ background: GRN + '11', border: `1px solid ${GRN}33`, borderRadius: 3, padding: '6px 12px', marginBottom: 10, fontFamily: "'DM Mono', monospace", fontSize: 11, color: GRN, display:'flex', gap:24 }}>
+              {wf.priceDealer && +wf.priceDealer > 0 && <span>Margen dealer: +{fmt(+wf.priceDealer - +wf.cost)} ({((+wf.priceDealer - +wf.cost) / +wf.cost * 100).toFixed(1)}%)</span>}
+              <span>Margen público: +{fmt(+wf.priceAsked - +wf.cost)} ({((+wf.priceAsked - +wf.cost) / +wf.cost * 100).toFixed(1)}%)</span>
             </div>
           )}
           <Divider label="ADQUISICIÓN" />
@@ -2427,87 +2583,137 @@ function InventarioModule({ state, setState }) {
             MODELO: {models.find(m => m.id === wf._modelId)?.name || '—'}
           </div>
 
-          {/* Referencia — uppercase alfanumérico */}
+          {/* Referencia */}
           <div style={{ marginBottom: 10 }}>
             <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>NÚMERO DE REFERENCIA *</label>
             <input value={qf.ref || ''} autoFocus
               onChange={e => setQf(f => ({ ...f, ref: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\/\.]/g, '') }))}
               onKeyDown={e => e.key === 'Enter' && qf.ref && quickCreate('ref')}
-              placeholder="Ej. 126710BLNR · 5711/1A-010 · PAM00441"
+              placeholder="Ej. 126710BLNR · PAM01313 · WSSA0010"
               maxLength={20}
               style={{ background: S3, border: `1px solid ${qf.ref ? G + '66' : BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, letterSpacing: '.05em', width: '100%', outline: 'none', boxSizing: 'border-box', transition: 'border-color .2s' }} />
           </div>
 
-          {/* Calibre — uppercase alfanumérico */}
+          {/* Calibre */}
           <div style={{ marginBottom: 10 }}>
-            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>CALIBRE <span style={{ color: TD, opacity: .5 }}>(opcional)</span></label>
+            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>CALIBRE <span style={{ opacity: .5 }}>(opcional)</span></label>
             <input value={qf.caliber || ''}
-              onChange={e => setQf(f => ({ ...f, caliber: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\.\/]/g, '') }))}
-              placeholder="Ej. 3235 · ETA 2824 · Cal.5 · A08"
-              maxLength={15}
+              onChange={e => setQf(f => ({ ...f, caliber: e.target.value.toUpperCase().replace(/[^A-Z0-9\-\.\/\s]/g, '') }))}
+              placeholder="Ej. 3235 · ETA 2824 · Cal.5"
+              maxLength={20}
               style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, letterSpacing: '.05em', width: '100%', outline: 'none', boxSizing: 'border-box' }} />
           </div>
 
-          {/* Row: Tamaño + Material */}
+          {/* Tamaño + Material */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
             <div>
               <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>DIÁMETRO</label>
-              <select value={qf.size || ''} onChange={e => setQf(f => ({ ...f, size: e.target.value }))}
+              <select value={qf.size || ''} onChange={e => setQf(f => ({ ...f, size: e.target.value, _customSize: false }))}
                 style={{ background: S3, border: `1px solid ${BR}`, color: qf.size ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
                 <option value="">— Sin especificar —</option>
-                {['34mm','36mm','37mm','38mm','39mm','40mm','41mm','42mm','43mm','44mm','45mm','46mm','47mm','50mm'].map(s => <option key={s} value={s}>{s}</option>)}
-                <option value="otro">Otro</option>
+                {['28mm','29mm','30mm','31mm','32mm','33mm','34mm','36mm','37mm','38mm','39mm','40mm','41mm','42mm','43mm','44mm','45mm','46mm','47mm','50mm'].map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="__custom">✏ Otro (escribir)</option>
               </select>
+              {qf.size === '__custom' && (
+                <input autoFocus value={qf._customSizeVal || ''} onChange={e => setQf(f => ({ ...f, _customSizeVal: e.target.value, size: e.target.value }))}
+                  placeholder="Ej. 35.5mm" maxLength={10}
+                  style={{ marginTop: 5, background: S3, border: `1px solid ${G}66`, color: TX, padding: '7px 10px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 12, width: '100%', outline: 'none', boxSizing: 'border-box' }} />
+              )}
             </div>
             <div>
               <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>MATERIAL CAJA</label>
               <select value={qf.material || 'Acero'} onChange={e => setQf(f => ({ ...f, material: e.target.value }))}
                 style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
-                {['Acero','Oro Amarillo 18k','Oro Blanco 18k','Oro Rosa 18k','Bimetálico','Platino','Titanio','Cerámica','Carbono'].map(m => <option key={m}>{m}</option>)}
+                {['Acero','Acero/Oro','Oro Amarillo 18k','Oro Blanco 18k','Oro Rosa 18k','Platino','Titanio','Cerámica','Carbono','Bronce','Aluminio','DLC Negro','Caucho armado',
+                  ...(state.customMaterials || [])
+                ].map(m => <option key={m}>{m}</option>)}
+                <option value="__custom_mat">✏ Agregar nuevo...</option>
               </select>
+              {qf.material === '__custom_mat' && (
+                <input autoFocus value={qf._customMat || ''} onChange={e => setQf(f => ({ ...f, _customMat: e.target.value, material: e.target.value }))}
+                  placeholder="Ej. Cermet · PVD dorado"
+                  style={{ marginTop: 5, background: S3, border: `1px solid ${G}66`, color: TX, padding: '7px 10px', borderRadius: 4, fontFamily: "'Jost', monospace", fontSize: 12, width: '100%', outline: 'none', boxSizing: 'border-box' }}
+                  onBlur={e => {
+                    const val = e.target.value.trim()
+                    if (val && val !== '__custom_mat') {
+                      setState(s => ({ ...s, customMaterials: [...new Set([...(s.customMaterials || []), val])] }))
+                    }
+                  }} />
+              )}
             </div>
           </div>
 
-          {/* Row: Esfera + Bisel */}
+          {/* Esfera + Bisel */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
             <div>
               <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>ESFERA <span style={{ opacity: .5 }}>(opcional)</span></label>
               <select value={qf.dial || ''} onChange={e => setQf(f => ({ ...f, dial: e.target.value }))}
                 style={{ background: S3, border: `1px solid ${BR}`, color: qf.dial ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
                 <option value="">— Sin especificar —</option>
-                {['Negra','Blanca','Azul','Gris','Verde','Champagne','Plateada','Marrón',
-                  'Meteorito','Nácar','Skeletonizada','Smoked','Sunburst azul','Sunburst verde'].map(d => <option key={d} value={d}>{d}</option>)}
+                {['Negra','Blanca','Azul','Gris','Verde','Champagne','Plateada','Marrón','Roja','Naranja',
+                  'Meteorito','Nácar','Skeletonizada','Smoked','Sunburst azul','Sunburst verde','Sunburst negro',
+                  ...(state.customDials || [])
+                ].map(d => <option key={d} value={d}>{d}</option>)}
+                <option value="__custom_dial">✏ Agregar nueva...</option>
               </select>
+              {qf.dial === '__custom_dial' && (
+                <input autoFocus value={qf._customDial || ''} onChange={e => setQf(f => ({ ...f, _customDial: e.target.value, dial: e.target.value }))}
+                  placeholder="Ej. Lacre rojo"
+                  style={{ marginTop: 5, background: S3, border: `1px solid ${G}66`, color: TX, padding: '7px 10px', borderRadius: 4, fontFamily: "'Jost', monospace", fontSize: 12, width: '100%', outline: 'none', boxSizing: 'border-box' }}
+                  onBlur={e => {
+                    const val = e.target.value.trim()
+                    if (val && val !== '__custom_dial') setState(s => ({ ...s, customDials: [...new Set([...(s.customDials || []), val])] }))
+                  }} />
+              )}
             </div>
             <div>
               <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>BISEL <span style={{ opacity: .5 }}>(opcional)</span></label>
               <select value={qf.bezel || ''} onChange={e => setQf(f => ({ ...f, bezel: e.target.value }))}
                 style={{ background: S3, border: `1px solid ${BR}`, color: qf.bezel ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
                 <option value="">— Sin especificar —</option>
-                {['Liso','Estriado','Cerachrom negro','Cerachrom azul','Cerachrom verde',
-                  'Cerachrom bicolor','Taquímetro','GMT bicolor','Buceador','Pulsométro',
-                  'Diamantes','Engastado'].map(b => <option key={b} value={b}>{b}</option>)}
+                {['Liso','Estriado','Cerachrom negro','Cerachrom azul','Cerachrom verde','Cerachrom bicolor',
+                  'Taquímetro','GMT bicolor','Buceador','Pulsómetro','Diamantes','Engastado','Zafiro',
+                  ...(state.customBezels || [])
+                ].map(b => <option key={b} value={b}>{b}</option>)}
+                <option value="__custom_bezel">✏ Agregar nuevo...</option>
               </select>
+              {qf.bezel === '__custom_bezel' && (
+                <input autoFocus value={qf._customBezel || ''} onChange={e => setQf(f => ({ ...f, _customBezel: e.target.value, bezel: e.target.value }))}
+                  placeholder="Ej. Cerachrom rojo"
+                  style={{ marginTop: 5, background: S3, border: `1px solid ${G}66`, color: TX, padding: '7px 10px', borderRadius: 4, fontFamily: "'Jost', monospace", fontSize: 12, width: '100%', outline: 'none', boxSizing: 'border-box' }}
+                  onBlur={e => {
+                    const val = e.target.value.trim()
+                    if (val && val !== '__custom_bezel') setState(s => ({ ...s, customBezels: [...new Set([...(s.customBezels || []), val])] }))
+                  }} />
+              )}
             </div>
           </div>
 
-          {/* Año */}
+          {/* Año — selector mes/año */}
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.15em', marginBottom: 5 }}>AÑO INTRODUCCIÓN <span style={{ opacity: .5 }}>(opcional)</span></label>
-            <input value={qf.year || ''} type="number"
-              min={1920} max={new Date().getFullYear()}
-              onChange={e => {
-                const v = e.target.value
-                if (v === '' || (parseInt(v) >= 1920 && parseInt(v) <= new Date().getFullYear()))
-                  setQf(f => ({ ...f, year: v }))
-              }}
-              placeholder={`1920 – ${new Date().getFullYear()}`}
-              style={{ background: S3, border: `1px solid ${BR}`, color: TX, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, width: '100%', outline: 'none', boxSizing: 'border-box' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <select value={qf._yearMonth || ''} onChange={e => setQf(f => ({ ...f, _yearMonth: e.target.value }))}
+                style={{ background: S3, border: `1px solid ${BR}`, color: qf._yearMonth ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }}>
+                <option value="">— Mes —</option>
+                {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m,i) => <option key={i} value={String(i+1).padStart(2,'0')}>{m}</option>)}
+              </select>
+              <select value={qf.year || ''} onChange={e => setQf(f => ({ ...f, year: e.target.value }))}
+                style={{ background: S3, border: `1px solid ${BR}`, color: qf.year ? TX : TD, padding: '9px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 13, width: '100%', outline: 'none' }}>
+                <option value="">— Año —</option>
+                {Array.from({ length: new Date().getFullYear() - 1919 }, (_, i) => new Date().getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            {(qf._yearMonth || qf.year) && (
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: G, marginTop: 4, letterSpacing: '.1em' }}>
+                {qf._yearMonth ? ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][+qf._yearMonth-1] + ' ' : ''}{qf.year || ''}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn small variant="secondary" onClick={() => { setQc(null); setQf({ material: 'Acero' }); setQcError('') }} disabled={qcSaving}>Cancelar</Btn>
-            <Btn small onClick={() => quickCreate('ref')} disabled={!qf.ref || !wf._modelId || qcSaving}>{qcSaving ? 'Guardando...' : 'Crear Referencia'}</Btn>
+            <Btn small onClick={() => quickCreate('ref')} disabled={!qf.ref || !wf._modelId || qcSaving || qf.material === '__custom_mat' || qf.dial === '__custom_dial' || qf.bezel === '__custom_bezel' || qf.size === '__custom'}>{qcSaving ? 'Guardando...' : 'Crear Referencia'}</Btn>
           </div>
         </QuickCreate>
       )}
@@ -2549,12 +2755,21 @@ function InventarioModule({ state, setState }) {
           </div>
         </QuickCreate>
       )}
+
+      {/* ── BAJA DE PIEZA ── */}
+      {showBajaPieza && selWatch && (
+        <ReasonModal
+          title={`Dar de baja "${selWatch.serial || selWatch.id}"`}
+          subtitle={`INVENTARIO · ${brands.find(b=>b.id===models.find(m=>m.id===refs.find(r=>r.id===selWatch.refId)?.modelId)?.brandId)?.name || ''} · BAJA DEFINITIVA`}
+          placeholder="Ej: Robo, pérdida, daño irreparable, error de registro..."
+          confirmLabel="Dar de Baja"
+          onConfirm={confirmBajaPieza}
+          onClose={() => setShowBajaPieza(false)}
+        />
+      )}
     </div>
   )
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  VENTAS & CARTERA
 // ══════════════════════════════════════════════════════════════════════════════
 function VentasModule({ state, setState }) {
   const { watches, sales, clients, brands, models, refs } = state
@@ -3521,19 +3736,24 @@ function ContactosModule({ state, setState }) {
     } catch (e) { toast('Error: ' + e.message, 'error') }
   }
 
-  const delCliente = async (c) => {
-    if (!window.confirm(`¿Eliminar cliente "${c.name}"?`)) return
+  const [deleteTarget, setDeleteTarget] = useState(null) // { type, item }
+
+  const delCliente = (c) => setDeleteTarget({ type: 'cliente', item: c })
+
+  const confirmDelCliente = async (razon) => {
+    const c = deleteTarget.item
     const prev = state.clients
     setState(s => ({ ...s, clients: s.clients.filter(x => x.id !== c.id) }))
     try {
       const { error } = await sb.from('clientes').delete().eq('id', c.id)
       if (error) throw new Error(error.message)
-      logAction('delete', 'contactos', 'cliente', `Eliminó cliente "${c.name}"`, c.id)
+      logAction('delete', 'contactos', 'cliente', `Eliminó cliente "${c.name}" · Razón: ${razon}`, c.id)
       toast('Cliente eliminado', 'info')
     } catch (e) {
       setState(s => ({ ...s, clients: prev }))
-      toast('Error al eliminar: ' + e.message, 'error')
+      toast('Error: ' + e.message, 'error')
     }
+    setDeleteTarget(null)
   }
 
   const saveProveedor = async () => {
@@ -3555,19 +3775,22 @@ function ContactosModule({ state, setState }) {
     } catch (e) { toast('Error: ' + e.message, 'error') }
   }
 
-  const delProveedor = async (p) => {
-    if (!window.confirm(`¿Eliminar proveedor "${p.name}"?`)) return
+  const delProveedor = (p) => setDeleteTarget({ type: 'proveedor', item: p })
+
+  const confirmDelProveedor = async (razon) => {
+    const p = deleteTarget.item
     const prev = state.suppliers
     setState(s => ({ ...s, suppliers: s.suppliers.filter(x => x.id !== p.id) }))
     try {
       const { error } = await sb.from('proveedores').delete().eq('id', p.id)
       if (error) throw new Error(error.message)
-      logAction('delete', 'contactos', 'proveedor', `Eliminó proveedor "${p.name}"`, p.id)
+      logAction('delete', 'contactos', 'proveedor', `Eliminó proveedor "${p.name}" · Razón: ${razon}`, p.id)
       toast('Proveedor eliminado', 'info')
     } catch (e) {
       setState(s => ({ ...s, suppliers: prev }))
-      toast('Error al eliminar: ' + e.message, 'error')
+      toast('Error: ' + e.message, 'error')
     }
+    setDeleteTarget(null)
   }
 
   const actionBtn = (color = TM) => ({
@@ -3754,12 +3977,31 @@ function ContactosModule({ state, setState }) {
           </div>
         </Modal>
       )}
+
+      {/* ── REASON MODALS ── */}
+      {deleteTarget?.type === 'cliente' && (
+        <ReasonModal
+          title={`Eliminar cliente "${deleteTarget.item.name}"`}
+          subtitle="CONTACTOS · BAJA DE CLIENTE"
+          placeholder="Ej: Duplicado, datos incorrectos, cliente inactivo..."
+          confirmLabel="Eliminar Cliente"
+          onConfirm={confirmDelCliente}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
+      {deleteTarget?.type === 'proveedor' && (
+        <ReasonModal
+          title={`Eliminar proveedor "${deleteTarget.item.name}"`}
+          subtitle="CONTACTOS · BAJA DE PROVEEDOR"
+          placeholder="Ej: Proveedor inactivo, duplicado, datos incorrectos..."
+          confirmLabel="Eliminar Proveedor"
+          onConfirm={confirmDelProveedor}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   )
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ADMIN MODULE
 // ══════════════════════════════════════════════════════════════════════════════
 // ── AUTH SCREEN ─────────────────────────────────────────────────────────────
 function AuthScreen({ onAuth }) {
@@ -4435,7 +4677,7 @@ export default function App() {
       const mapPieza  = (p, costosList) => ({
         id: p.id, refId: p.ref_id, supplierId: p.supplier_id, serial: p.serial,
         condition: p.condition, fullSet: p.full_set, papers: p.papers, box: p.box,
-        cost: p.cost, priceAsked: p.price_asked, entryDate: p.entry_date,
+        cost: p.cost, priceDealer: p.price_dealer || 0, priceAsked: p.price_asked, entryDate: p.entry_date,
         status: p.status, stage: p.stage, validatedBy: p.validated_by,
         validationDate: p.validation_date, notes: p.notes,
         modoAdquisicion: p.modo_adquisicion || 'sociedad',
