@@ -1751,6 +1751,294 @@ function DashboardModule({ state }) {
 // ══════════════════════════════════════════════════════════════════════════════
 //  INVENTARIO
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+//  AI VERIFICADOR — Claude-powered price & reference validation
+// ══════════════════════════════════════════════════════════════════════════════
+function AIVerificador({ watch, brand, model, ref_, fotos }) {
+  const [result, setResult]     = useState(null)   // verification result object
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState(null)
+  const [imgResults, setImgResults] = useState([]) // external photos
+  const [loadingImgs, setLoadingImgs] = useState(false)
+  const [tab, setTab]           = useState('verificar') // 'verificar' | 'fotos'
+
+  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY  // ya no se necesita en client
+
+  const nombreReloj = `${brand?.name || ''} ${model?.name || ''} ${ref_?.ref || ''}`.trim()
+
+  // Todas las llamadas van al proxy — la key vive solo en el servidor
+  const callClaude = async (body) => {
+    const response = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      throw new Error(err.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  }
+
+  const verificar = async () => {
+    if (!brand?.name || !model?.name) {
+      setError('La pieza necesita marca y modelo para verificar.')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    setResult(null)
+    try {
+      const prompt = `Eres un experto en relojes de lujo. Analiza esta pieza y responde ÚNICAMENTE con un JSON válido:
+
+PIEZA A VERIFICAR:
+- Marca: ${brand?.name}
+- Modelo: ${model?.name}
+- Referencia: ${ref_?.ref || 'No especificada'}
+- Calibre: ${ref_?.caliber || 'No especificado'}
+- Material caja: ${ref_?.material || 'No especificado'}
+- Esfera: ${ref_?.dial || 'No especificada'}
+- Bisel: ${ref_?.bezel || 'No especificado'}
+- Diámetro: ${ref_?.size || 'No especificado'}
+- Serial: ${watch.serial || 'No especificado'}
+- Condición: ${watch.condition || 'No especificada'}
+- Precio de costo registrado: ${watch.cost ? '$' + watch.cost.toLocaleString('es-MX') + ' MXN' : 'No registrado'}
+- Precio público registrado: ${watch.priceAsked ? '$' + watch.priceAsked.toLocaleString('es-MX') + ' MXN' : 'No registrado'}
+
+Busca en internet el precio de mercado actual de este reloj y responde con este JSON exacto (sin markdown, sin texto adicional):
+{
+  "referenciaValida": true/false,
+  "notasReferencia": "string — ¿existe esta referencia? ¿es correcta la combinación de specs?",
+  "precioMercadoUSD": number_or_null,
+  "precioMercadoMXN": number_or_null,
+  "fuentesPrecio": ["Chrono24", "WatchCharts", etc],
+  "rangoPrecioUSD": { "min": number, "max": number },
+  "evaluacionPrecio": "bajo_mercado | en_mercado | sobre_mercado | no_determinado",
+  "margenSugerido": "string — margen recomendado para este modelo en el mercado secundario mexicano",
+  "alertas": ["string", ...],
+  "recomendaciones": ["string", ...],
+  "autenticidadFlags": ["string — características a verificar en físico para autenticar"],
+  "serialInfo": "string — qué indica el rango de serial si está disponible"
+}`
+
+      const data = await callClaude({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+
+      const textBlock = data.content?.find(c => c.type === 'text')
+      if (!textBlock) throw new Error('Sin respuesta de texto del modelo')
+      const clean = textBlock.text.replace(/```json|```/g, '').trim()
+      const parsed = JSON.parse(clean)
+      setResult(parsed)
+    } catch (e) {
+      setError('Error al verificar: ' + e.message)
+    }
+    setLoading(false)
+  }
+
+  const buscarFotos = async () => {
+    setLoadingImgs(true)
+    setImgResults([])
+    setError(null)
+    try {
+      const data = await callClaude({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{
+          role: 'user',
+          content: `Busca en Chrono24, WatchBox, WatchFinder o Google imágenes de: ${nombreReloj} referencia ${ref_?.ref || ''}. Devuelve SOLO un JSON array con hasta 6 URLs de imágenes reales del reloj:
+[
+  { "url": "https://...", "fuente": "Chrono24", "descripcion": "Vista frontal" },
+  ...
+]
+Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
+        }]
+      })
+      const textBlock = data.content?.find(c => c.type === 'text')
+      if (textBlock) {
+        const clean = textBlock.text.replace(/```json|```/g, '').trim()
+        const imgs = JSON.parse(clean)
+        setImgResults(Array.isArray(imgs) ? imgs : [])
+      }
+    } catch (e) {
+      setError('Error buscando fotos: ' + e.message)
+    }
+    setLoadingImgs(false)
+  }
+
+  // ── Render helpers ─────────────────────────────────────────────────────────
+  const evalColor = v => ({
+    bajo_mercado: GRN, en_mercado: BLU, sobre_mercado: G, no_determinado: TD
+  })[v] || TD
+  const evalLabel = v => ({
+    bajo_mercado: '✓ Bajo mercado — buena compra',
+    en_mercado:   '◎ En precio de mercado',
+    sobre_mercado:'⚠ Sobre precio de mercado',
+    no_determinado: '— No determinado'
+  })[v] || v
+
+  return (
+    <div>
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: S3, borderRadius: 4, overflow: 'hidden' }}>
+        {[['verificar','🔍 Verificar precio y ref.'],['fotos','📷 Fotos externas']].map(([id,label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ flex: 1, padding: '8px 12px', background: tab===id ? G : 'transparent', color: tab===id ? BG : TM, border: 'none', fontFamily: "'DM Mono',monospace", fontSize: 9, letterSpacing: '.1em', cursor: 'pointer' }}>
+            {label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* ── VERIFICAR TAB ── */}
+      {tab === 'verificar' && (<>
+        {/* Resumen pieza */}
+        <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 14 }}>
+          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 15, color: TX }}>{nombreReloj}</div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TM, marginTop: 3 }}>
+            {ref_?.ref || '—'} · {ref_?.material || '—'} · {ref_?.size || '—'} · {watch.condition || '—'}
+          </div>
+        </div>
+
+        {!ANTHROPIC_KEY && (
+          <div style={{ background: RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', marginBottom:12, fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>
+            ⚠ Configura ANTHROPIC_KEY en las variables de entorno de Vercel para habilitar esta función.
+          </div>
+        )}
+
+        <Btn onClick={verificar} disabled={loading || !ANTHROPIC_KEY} style={{ width: '100%', marginBottom: 14 }}>
+          {loading ? '🔍 Verificando con IA...' : '🤖 Verificar con Claude + Web Search'}
+        </Btn>
+
+        {loading && (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>CONSULTANDO MERCADO...</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 6 }}>Buscando en Chrono24, WatchCharts, Watchfinder...</div>
+          </div>
+        )}
+
+        {error && (
+          <div style={{ background: RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>{error}</div>
+        )}
+
+        {result && (<>
+          {/* Referencia */}
+          <div style={{ background: (result.referenciaValida ? GRN : RED)+'11', border:`1px solid ${(result.referenciaValida ? GRN : RED)}33`, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:4 }}>REFERENCIA</div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:result.referenciaValida?GRN:RED }}>
+              {result.referenciaValida ? '✓ Referencia válida y confirmada' : '✗ Referencia cuestionable o no encontrada'}
+            </div>
+            {result.notasReferencia && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX, marginTop:5 }}>{result.notasReferencia}</div>}
+          </div>
+
+          {/* Precio mercado */}
+          <div style={{ background: S3, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:8 }}>PRECIO DE MERCADO</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
+              {[
+                { label:'USD', value: result.precioMercadoUSD ? `$${result.precioMercadoUSD.toLocaleString()}` : '—' },
+                { label:'MXN', value: result.precioMercadoMXN ? `$${result.precioMercadoMXN.toLocaleString('es-MX')}` : '—' },
+                { label:'RANGO USD', value: result.rangoPrecioUSD ? `$${result.rangoPrecioUSD.min?.toLocaleString()}–$${result.rangoPrecioUSD.max?.toLocaleString()}` : '—' },
+              ].map(({label,value}) => (
+                <div key={label} style={{ textAlign:'center' }}>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, marginBottom:3 }}>{label}</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:G }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:evalColor(result.evaluacionPrecio), padding:'6px 10px', background:evalColor(result.evaluacionPrecio)+'11', borderRadius:3 }}>
+              {evalLabel(result.evaluacionPrecio)}
+            </div>
+            {result.margenSugerido && (
+              <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TM, marginTop:6 }}>💡 {result.margenSugerido}</div>
+            )}
+            {result.fuentesPrecio?.length > 0 && (
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, marginTop:6 }}>Fuentes: {result.fuentesPrecio.join(' · ')}</div>
+            )}
+          </div>
+
+          {/* Alertas */}
+          {result.alertas?.length > 0 && (
+            <div style={{ background:RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:RED, letterSpacing:'.12em', marginBottom:6 }}>⚠ ALERTAS</div>
+              {result.alertas.map((a,i) => <div key={i} style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX, marginBottom:3 }}>• {a}</div>)}
+            </div>
+          )}
+
+          {/* Checklist autenticidad */}
+          {result.autenticidadFlags?.length > 0 && (
+            <div style={{ background:S3, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:6 }}>🔍 VERIFICAR EN FÍSICO</div>
+              {result.autenticidadFlags.map((f,i) => (
+                <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:5 }}>
+                  <input type="checkbox" style={{ marginTop:2, accentColor:G }} />
+                  <span style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX }}>{f}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Recomendaciones */}
+          {result.recomendaciones?.length > 0 && (
+            <div style={{ background:BLU+'11', border:`1px solid ${BLU}33`, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:BLU, letterSpacing:'.12em', marginBottom:6 }}>💡 RECOMENDACIONES</div>
+              {result.recomendaciones.map((r,i) => <div key={i} style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX, marginBottom:3 }}>• {r}</div>)}
+            </div>
+          )}
+
+          {result.serialInfo && (
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, padding:'6px 10px', background:S3, borderRadius:3 }}>
+              Serial: {result.serialInfo}
+            </div>
+          )}
+
+          <Btn variant="ghost" small onClick={verificar} style={{ width:'100%', marginTop:10 }}>🔄 Re-verificar</Btn>
+        </>)}
+      </>)}
+
+      {/* ── FOTOS EXTERNAS TAB ── */}
+      {tab === 'fotos' && (<>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginBottom:12, lineHeight:1.6 }}>
+          Busca imágenes de referencia de <span style={{ color:G }}>{nombreReloj}</span> en sitios especializados para usar como referencia o completar tu galería.
+        </div>
+        <Btn onClick={buscarFotos} disabled={loadingImgs || !ANTHROPIC_KEY} style={{ width:'100%', marginBottom:14 }}>
+          {loadingImgs ? '🔍 Buscando imágenes...' : '📷 Buscar fotos en internet'}
+        </Btn>
+
+        {loadingImgs && (
+          <div style={{ textAlign:'center', padding:20, fontFamily:"'DM Mono',monospace", fontSize:10, color:TM }}>Buscando en Chrono24, WatchFinder...</div>
+        )}
+
+        {error && (
+          <div style={{ background:RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>{error}</div>
+        )}
+
+        {imgResults.length > 0 && (
+          <>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', marginBottom:10 }}>{imgResults.length} IMÁGENES ENCONTRADAS</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              {imgResults.map((img, i) => (
+                <div key={i} style={{ background:S3, borderRadius:4, overflow:'hidden', border:`1px solid ${BR}` }}>
+                  <img src={img.url} alt={img.descripcion || nombreReloj}
+                    style={{ width:'100%', aspectRatio:'1', objectFit:'cover', display:'block' }}
+                    onError={e => { e.target.style.display='none' }} />
+                  <div style={{ padding:'6px 8px' }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM }}>{img.fuente}</div>
+                    {img.descripcion && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:10, color:TD }}>{img.descripcion}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </>)}
+    </div>
+  )
+}
+
 function InventarioModule({ state, setState }) {
   const { watches, sales, socios, brands, models, refs, suppliers, clients } = state
   const [view, setView]         = useState('pipeline')
@@ -2224,7 +2512,7 @@ function InventarioModule({ state, setState }) {
         <Modal title={`${selBrand?.name || ''} ${selModel?.name || ''}`} onClose={() => { setSelWatch(null); setDetailTab('info') }} width={740}>
           {/* Tabs */}
           <div style={{ display:'flex', borderBottom:`1px solid ${BR}`, marginBottom:18, gap:0 }}>
-            {[['info','◈ Info'],['fotos',`◧ Fotos (${state.fotos.filter(f=>f.piezaId===selWatch.id).length})`],['docs_compra',`📋 Docs Compra (${state.docs.filter(d=>d.entidadTipo==='pieza'&&d.entidadId===selWatch.id).length})`]].map(([id,label]) => (
+            {[['info','◈ Info'],['fotos',`◧ Fotos (${state.fotos.filter(f=>f.piezaId===selWatch.id).length})`],['docs_compra',`📋 Docs Compra (${state.docs.filter(d=>d.entidadTipo==='pieza'&&d.entidadId===selWatch.id).length})`],['ai_verify','🤖 Verificar']].map(([id,label]) => (
               <button key={id} onClick={() => setDetailTab(id)}
                 style={{ background:'none', border:'none', borderBottom:`2px solid ${detailTab===id?G:'transparent'}`, color:detailTab===id?G:TM, cursor:'pointer', fontFamily:"'DM Mono',monospace", fontSize:9, letterSpacing:'.12em', padding:'8px 16px', transition:'all .2s' }}>
                 {label.toUpperCase()}
@@ -2483,6 +2771,16 @@ function InventarioModule({ state, setState }) {
               docs={state.docs}
               onDocsChange={updater => setState(s => ({ ...s, docs: typeof updater === 'function' ? updater(s.docs) : updater }))}
               currentUserName={null}
+            />
+          )}
+
+          {detailTab === 'ai_verify' && selWatch && (
+            <AIVerificador
+              watch={selWatch}
+              brand={selBrand}
+              model={selModel}
+              ref_={selRef}
+              fotos={state.fotos.filter(f => f.piezaId === selWatch.id)}
             />
           )}
         </Modal>
