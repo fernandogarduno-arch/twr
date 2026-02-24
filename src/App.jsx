@@ -1762,8 +1762,6 @@ function AIVerificador({ watch, brand, model, ref_, fotos }) {
   const [loadingImgs, setLoadingImgs] = useState(false)
   const [tab, setTab]           = useState('verificar') // 'verificar' | 'fotos'
 
-  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY  // ya no se necesita en client
-
   const nombreReloj = `${brand?.name || ''} ${model?.name || ''} ${ref_?.ref || ''}`.trim()
 
   // Todas las llamadas van al proxy — la key vive solo en el servidor
@@ -1903,13 +1901,7 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
           </div>
         </div>
 
-        {!ANTHROPIC_KEY && (
-          <div style={{ background: RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', marginBottom:12, fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>
-            ⚠ Configura ANTHROPIC_KEY en las variables de entorno de Vercel para habilitar esta función.
-          </div>
-        )}
-
-        <Btn onClick={verificar} disabled={loading || !ANTHROPIC_KEY} style={{ width: '100%', marginBottom: 14 }}>
+        <Btn onClick={verificar} disabled={loading} style={{ width: '100%', marginBottom: 14 }}>
           {loading ? '🔍 Verificando con IA...' : '🤖 Verificar con Claude + Web Search'}
         </Btn>
 
@@ -2004,7 +1996,7 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
         <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginBottom:12, lineHeight:1.6 }}>
           Busca imágenes de referencia de <span style={{ color:G }}>{nombreReloj}</span> en sitios especializados para usar como referencia o completar tu galería.
         </div>
-        <Btn onClick={buscarFotos} disabled={loadingImgs || !ANTHROPIC_KEY} style={{ width:'100%', marginBottom:14 }}>
+        <Btn onClick={buscarFotos} disabled={loadingImgs} style={{ width:'100%', marginBottom:14 }}>
           {loadingImgs ? '🔍 Buscando imágenes...' : '📷 Buscar fotos en internet'}
         </Btn>
 
