@@ -250,6 +250,23 @@ const db = {
     }).eq('id', clientId)
     if (error) throw new Error(error.message)
   },
+
+  // EDITAR PIEZA
+  async updateWatch(id, fields) {
+    const { error } = await sb.from('piezas').update(fields).eq('id', id)
+    if (error) throw new Error(error.message)
+  },
+
+  // HISTORIAL DE EDITS
+  async savePiezaEdit(edit) {
+    const { error } = await sb.from('pieza_edits').insert({
+      pieza_id: edit.piezaId, campo: edit.campo,
+      valor_antes: edit.valorAntes != null ? String(edit.valorAntes) : null,
+      valor_despues: edit.valorDespues != null ? String(edit.valorDespues) : null,
+      editado_por: edit.editadoPor || null,
+    })
+    if (error) throw new Error(error.message)
+  },
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -313,8 +330,13 @@ const mediaDb = {
     if (error) throw new Error(error.message)
     return data.id  // UUID real generado por Postgres
   },
-  async deleteFoto(id) {
-    const { error } = await sb.from('pieza_fotos').delete().eq('id', id)
+  async deleteFoto(id, deletedBy) {
+    // SOFT DELETE — marca como inactiva, no borra el registro ni el archivo
+    const { error } = await sb.from('pieza_fotos').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: deletedBy || null,
+      motivo: 'Eliminada por usuario',
+    }).eq('id', id)
     if (error) throw new Error(error.message)
   },
   async saveDoc(d) {
@@ -665,14 +687,13 @@ function WatchGallery({ piezaId, fotos, onFotosChange }) {
   }
 
   const deleteFoto = async (foto) => {
-    if (!window.confirm(`¿Eliminar foto "${POSICIONES.find(p=>p.id===foto.posicion)?.label}"?`)) return
+    if (!window.confirm(`¿Desactivar foto "${POSICIONES.find(p=>p.id===foto.posicion)?.label}"?\n\nLa imagen quedará guardada en el historial de trazabilidad.`)) return
     try {
-      await storage.deleteFoto(foto.storagePath)
-      await mediaDb.deleteFoto(foto.id)
+      await mediaDb.deleteFoto(foto.id, _auditUser?.name || _auditUser?.email || 'Usuario')
       onFotosChange(prev => prev.filter(f => f.id !== foto.id))
-      logAction('delete', 'inventario', 'foto', `Eliminó foto ${foto.posicion}`, piezaId)
-      toast('Foto eliminada', 'info')
-    } catch(e) { toast('Error al eliminar: ' + e.message, 'error') }
+      logAction('delete', 'inventario', 'foto', `Desactivó foto ${foto.posicion} (soft-delete)`, piezaId)
+      toast('Foto desactivada — guardada en historial', 'info')
+    } catch(e) { toast('Error: ' + e.message, 'error') }
   }
 
   const shareGallery = () => {
@@ -1589,6 +1610,9 @@ function InventarioModule({ state, setState }) {
   const [showPay, setShowPay]   = useState(null)
   const [search, setSearch]     = useState('')
   const [detailTab, setDetailTab] = useState('info')  // 'info' | 'fotos' | 'docs'
+  const [showEdit, setShowEdit]   = useState(false)
+  const [editForm, setEditForm]   = useState({})
+  const [editSaving, setEditSaving] = useState(false)
 
   const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
   const [wf, setWf] = useState({ ...blank })
@@ -1752,6 +1776,56 @@ function InventarioModule({ state, setState }) {
     } finally {
       setWatchSaving(false)
     }
+  }
+
+  // ── Guardar edición de pieza con confirmación y audit trail ──
+  const saveEdit = async () => {
+    if (editSaving || !selWatch) return
+    // Build diff — only changed fields
+    const LABELS = { serial:'Número de Serie', condition:'Condición', cost:'Costo', priceAsked:'Precio Pedido', entryDate:'Fecha Ingreso', notes:'Notas', fullSet:'Full Set', papers:'Papeles', box:'Caja' }
+    const diffs = Object.entries(editForm).filter(([k, v]) => {
+      const before = selWatch[k]
+      if (typeof v === 'boolean') return v !== before
+      return String(v ?? '') !== String(before ?? '')
+    })
+    if (diffs.length === 0) { setShowEdit(false); return }
+
+    const resumen = diffs.map(([k, v]) => `${LABELS[k]||k}: "${selWatch[k]}" → "${v}"`).join('\n')
+    if (!window.confirm(`¿Confirmar los siguientes cambios?\n\n${resumen}\n\nEsta acción quedará registrada en el log de auditoría.`)) return
+
+    setEditSaving(true)
+    try {
+      // Map app fields → DB columns
+      const dbFields = {}
+      if (editForm.serial      !== undefined) dbFields.serial       = editForm.serial || null
+      if (editForm.condition   !== undefined) dbFields.condition    = editForm.condition
+      if (editForm.cost        !== undefined) dbFields.cost         = +editForm.cost || 0
+      if (editForm.priceAsked  !== undefined) dbFields.price_asked  = +editForm.priceAsked || 0
+      if (editForm.entryDate   !== undefined) dbFields.entry_date   = editForm.entryDate || null
+      if (editForm.notes       !== undefined) dbFields.notes        = editForm.notes || null
+      if (editForm.fullSet     !== undefined) dbFields.full_set     = editForm.fullSet
+      if (editForm.papers      !== undefined) dbFields.papers       = editForm.papers
+      if (editForm.box         !== undefined) dbFields.box          = editForm.box
+
+      await db.updateWatch(selWatch.id, dbFields)
+
+      // Save individual edit records for traceability
+      const editor = _auditUser?.name || _auditUser?.email || 'Usuario'
+      await Promise.all(diffs.map(([campo, valorDespues]) =>
+        db.savePiezaEdit({ piezaId: selWatch.id, campo: LABELS[campo]||campo, valorAntes: selWatch[campo], valorDespues, editadoPor: editor })
+      ))
+
+      // Update local state
+      const updated = { ...selWatch, ...editForm, cost: +editForm.cost || selWatch.cost, priceAsked: +editForm.priceAsked || selWatch.priceAsked }
+      setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
+      setSelWatch(updated)
+      logAction('edit', 'inventario', 'pieza', `Editó ${diffs.length} campo(s): ${diffs.map(([k])=>LABELS[k]||k).join(', ')}`, selWatch.id)
+      toast(`Pieza actualizada · ${diffs.length} cambio(s) registrado(s)`)
+      setShowEdit(false)
+    } catch(e) {
+      toast('Error al guardar: ' + e.message, 'error')
+    }
+    setEditSaving(false)
   }
 
   const saveAdditionalCost = async () => {
@@ -2097,9 +2171,61 @@ function InventarioModule({ state, setState }) {
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8, paddingTop: 14, borderTop: `1px solid ${BR}` }}>
+            {selWatch.stage !== 'liquidado' && (
+              <Btn variant="ghost" small onClick={() => { setEditForm({ serial: selWatch.serial||'', condition: selWatch.condition, cost: selWatch.cost, priceAsked: selWatch.priceAsked, entryDate: selWatch.entryDate, notes: selWatch.notes||'', fullSet: selWatch.fullSet, papers: selWatch.papers, box: selWatch.box }); setShowEdit(true) }}>
+                ✎ Editar Pieza
+              </Btn>
+            )}
             {selWatch.stage === 'oportunidad' && <Btn variant="ghost" small onClick={() => approve(selWatch)}>✓ Aprobar → Inventario</Btn>}
             {selWatch.stage === 'inventario' && !selSale && <Btn small onClick={() => setShowSale(true)}>Registrar Venta</Btn>}
           </div>
+
+          {/* ── EDIT FORM ── */}
+          {showEdit && (
+            <div style={{ marginTop: 14, background: S2, border: `1px solid ${BRG}`, borderRadius: 8, padding: 18 }}>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: G, letterSpacing: '.15em', marginBottom: 14 }}>✎ EDITAR PIEZA</div>
+              <FR>
+                <Field label="Número de Serie">
+                  <input value={editForm.serial||''} onChange={e => setEditForm(f => ({ ...f, serial: e.target.value }))} placeholder="S/N" style={inputStyle} />
+                </Field>
+                <Field label="Condición">
+                  <select value={editForm.condition} onChange={e => setEditForm(f => ({ ...f, condition: e.target.value }))} style={selStyle}>
+                    {['Mint','Excelente','Muy Bueno','Bueno','Regular','Para Servicio'].map(x => <option key={x}>{x}</option>)}
+                  </select>
+                </Field>
+              </FR>
+              <FR>
+                <Field label="Costo (MXN)">
+                  <input type="number" value={editForm.cost} onChange={e => setEditForm(f => ({ ...f, cost: e.target.value }))} placeholder="0" style={inputStyle} />
+                </Field>
+                <Field label="Precio Pedido (MXN)">
+                  <input type="number" value={editForm.priceAsked} onChange={e => setEditForm(f => ({ ...f, priceAsked: e.target.value }))} placeholder="0" style={inputStyle} />
+                </Field>
+              </FR>
+              <FR>
+                <Field label="Fecha Ingreso">
+                  <input type="date" value={editForm.entryDate||''} onChange={e => setEditForm(f => ({ ...f, entryDate: e.target.value }))} style={inputStyle} />
+                </Field>
+                <Field label="Notas">
+                  <input value={editForm.notes||''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones..." style={inputStyle} />
+                </Field>
+              </FR>
+              <div style={{ display: 'flex', gap: 20, marginBottom: 14 }}>
+                {[['fullSet','Full Set'],['papers','Papeles'],['box','Caja']].map(([k,l]) => (
+                  <label key={k} style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer', fontFamily:"'Jost',sans-serif", fontSize:13, color:TX }}>
+                    <input type="checkbox" checked={editForm[k]||false} onChange={e => setEditForm(f => ({ ...f, [k]: e.target.checked }))} style={{ width:'auto', accentColor:G }} />{l}
+                  </label>
+                ))}
+              </div>
+              <div style={{ background: G+'11', border:`1px solid ${G}33`, borderRadius:4, padding:'8px 12px', marginBottom:12 }}>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, letterSpacing:'.1em' }}>⚠ LOS CAMBIOS QUEDARÁN REGISTRADOS EN EL HISTORIAL DE AUDITORÍA</span>
+              </div>
+              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                <Btn small variant="secondary" onClick={() => setShowEdit(false)} disabled={editSaving}>Cancelar</Btn>
+                <Btn small onClick={saveEdit} disabled={editSaving}>{editSaving ? 'Guardando...' : 'Confirmar Cambios'}</Btn>
+              </div>
+            </div>
+          )}
           </>)}
 
           {/* ── FOTOS TAB ── */}
@@ -4345,7 +4471,7 @@ export default function App() {
         sales:      (ventas     || []).map(v => mapVenta(v, pagos || [])),
         socios:     (socios     || []).map(s => mapSocio(s, movimientos || [])),
         tiposCosto: (tiposCosto || []).map(t => ({ id: t.id, nombre: t.nombre, icono: t.icono })),
-        fotos:      (piezaFotos || []).map(f => ({ id:f.id, piezaId:f.pieza_id, posicion:f.posicion, url:f.url, storagePath:f.storage_path, createdAt:f.created_at })),
+        fotos:      (piezaFotos || []).filter(f => !f.deleted_at).map(f => ({ id:f.id, piezaId:f.pieza_id, posicion:f.posicion, url:f.url, storagePath:f.storage_path, createdAt:f.created_at })),
         docs:       (transaccionDocs || []).map(d => ({ id:d.id, entidadTipo:d.entidad_tipo, entidadId:d.entidad_id, tipo:d.tipo, nombreArchivo:d.nombre_archivo, url:d.url, storagePath:d.storage_path, verificado:d.verificado, fechaVerificacion:d.fecha_verificacion, verificadoPor:d.verificado_por, createdAt:d.created_at })),
       })
     } catch(e) {
