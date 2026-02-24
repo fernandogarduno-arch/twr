@@ -46,15 +46,15 @@ const ROLES = {
 }
 
 const NAV_ITEMS = [
-  { id: 'dashboard',      icon: '◈', label: 'Dashboard',      roles: ['director', 'operador'] },
-  { id: 'inventario',     icon: '◷', label: 'Inventario',     roles: ['director', 'operador'] },
-  { id: 'ventas',         icon: '⇄', label: 'Ventas & Pagos', roles: ['director', 'operador'] },
-  { id: 'inversionistas', icon: '◉', label: 'Inversionistas', roles: ['director'] },
-  { id: 'contactos',      icon: '◌', label: 'Contactos',      roles: ['director', 'operador'] },
-  { id: 'catalogos',      icon: '▤', label: 'Catálogos',      roles: ['director', 'operador'] },
-  { id: 'reportes',       icon: '▣', label: 'Reportes',       roles: ['director'] },
+  { id: 'dashboard',      icon: '◈', label: 'Dashboard',      roles: ['superuser', 'director', 'operador'] },
+  { id: 'inventario',     icon: '◷', label: 'Inventario',     roles: ['superuser', 'director', 'operador'] },
+  { id: 'ventas',         icon: '⇄', label: 'Ventas & Pagos', roles: ['superuser', 'director', 'operador'] },
+  { id: 'inversionistas', icon: '◉', label: 'Inversionistas', roles: ['superuser', 'director'] },
+  { id: 'contactos',      icon: '◌', label: 'Contactos',      roles: ['superuser', 'director', 'operador'] },
+  { id: 'catalogos',      icon: '▤', label: 'Catálogos',      roles: ['superuser', 'director', 'operador'] },
+  { id: 'reportes',       icon: '▣', label: 'Reportes',       roles: ['superuser', 'director'] },
   { id: 'mi_cuenta',      icon: '◎', label: 'Mi Cuenta',      roles: ['inversionista'] },
-  { id: 'admin',          icon: '⚙', label: 'Administración', roles: ['director'] },
+  { id: 'admin',          icon: '⚙', label: 'Administración', roles: ['superuser', 'director'] },
 ]
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -67,13 +67,27 @@ const uid  = () => 'id_' + Math.random().toString(36).slice(2, 9)
 const dias = d => d ? Math.floor((new Date() - new Date(d + 'T00:00:00')) / 86400000) : 0
 const statusColor = s => ({ Disponible: GRN, Vendido: TM, Consignado: BLU, Reservado: G, Oportunidad: PRP, Liquidado: GRN })[s] || TM
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  DEMO DATA (reemplaza con llamadas a Supabase cuando conectes la DB completa)
+// ── Audit logger — fire & forget, never blocks UI ───────────
+let _auditUser = null  // set by App on login
+const logAction = (action, module, entity, description, entityId = null) => {
+  if (!_auditUser) return
+  sb.from('audit_log').insert({
+    user_id:     _auditUser.id,
+    user_email:  _auditUser.email,
+    user_name:   _auditUser.name || _auditUser.email,
+    action, module, entity, description,
+    entity_id:   entityId ? String(entityId) : null,
+  }).then(() => {})  // intentionally silent — never throw
+}
+
+
 // ══════════════════════════════════════════════════════════════════════════════
 const DEMO = {
   brands: [], models: [], refs: [], watches: [],
   sales: [], payments: [], contacts: [], suppliers: [],
-  clients: [], investors: [],
+  clients: [],
+  fotos: [],   // [{ id, piezaId, posicion, url, storagePath, createdAt }]
+  docs:  [],   // [{ id, entidadTipo, entidadId, tipo, nombreArchivo, url, storagePath, verificado, fechaVerificacion, verificadoPor }]
   // Socios configurables (no hardcodeados)
   socios: [
     { id: 'S1', name: 'Fernando Garduño', participacion: 40, color: '#C9A96E', activo: true },
@@ -239,7 +253,87 @@ const db = {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  QUICK CREATE — inline mini-modal para crear sin salir del flujo
+//  STORAGE HELPERS — Supabase Storage upload / delete / signed URLs
+// ══════════════════════════════════════════════════════════════════════════════
+const BUCKET_FOTOS = 'fotos_piezas'
+const BUCKET_DOCS  = 'documentos'
+
+const storage = {
+  // Upload image to fotos_piezas bucket (public)
+  async uploadFoto(piezaId, posicion, file) {
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const path = `piezas/${piezaId}/${posicion}-${Date.now()}.${ext}`
+    const { error } = await sb.storage.from(BUCKET_FOTOS).upload(path, file, {
+      cacheControl: '31536000', upsert: true, contentType: file.type
+    })
+    if (error) throw new Error(error.message)
+    const { data } = sb.storage.from(BUCKET_FOTOS).getPublicUrl(path)
+    return { url: data.publicUrl, storagePath: path }
+  },
+
+  // Upload document to documentos bucket (private → signed URL)
+  async uploadDoc(entidadTipo, entidadId, tipo, file) {
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf'
+    const safeType = tipo.replace(/[^a-zA-Z0-9]/g, '_')
+    const path = `${entidadTipo}/${entidadId}/${safeType}-${Date.now()}.${ext}`
+    const { error } = await sb.storage.from(BUCKET_DOCS).upload(path, file, {
+      cacheControl: '3600', upsert: false, contentType: file.type
+    })
+    if (error) throw new Error(error.message)
+    // Get signed URL valid 12h
+    const { data: signed } = await sb.storage.from(BUCKET_DOCS).createSignedUrl(path, 43200)
+    return { url: signed?.signedUrl || '', storagePath: path }
+  },
+
+  // Refresh signed URL for a private doc (call when opening)
+  async refreshDocUrl(storagePath) {
+    const { data } = await sb.storage.from(BUCKET_DOCS).createSignedUrl(storagePath, 43200)
+    return data?.signedUrl || ''
+  },
+
+  // Delete from storage
+  async deleteFoto(storagePath) {
+    await sb.storage.from(BUCKET_FOTOS).remove([storagePath])
+  },
+  async deleteDoc(storagePath) {
+    await sb.storage.from(BUCKET_DOCS).remove([storagePath])
+  },
+}
+
+// DB helpers for fotos/docs
+const mediaDb = {
+  async saveFoto(f) {
+    const { error } = await sb.from('pieza_fotos').insert({
+      id: f.id, pieza_id: f.piezaId, posicion: f.posicion,
+      url: f.url, storage_path: f.storagePath,
+      uploaded_by: _auditUser?.id || null
+    })
+    if (error) throw new Error(error.message)
+  },
+  async deleteFoto(id) {
+    const { error } = await sb.from('pieza_fotos').delete().eq('id', id)
+    if (error) throw new Error(error.message)
+  },
+  async saveDoc(d) {
+    const { error } = await sb.from('transaccion_docs').insert({
+      id: d.id, entidad_tipo: d.entidadTipo, entidad_id: d.entidadId,
+      tipo: d.tipo, nombre_archivo: d.nombreArchivo,
+      url: d.url, storage_path: d.storagePath,
+      verificado: false, uploaded_by: _auditUser?.id || null
+    })
+    if (error) throw new Error(error.message)
+  },
+  async verifyDoc(id, verificadoPor) {
+    const { error } = await sb.from('transaccion_docs').update({
+      verificado: true, fecha_verificacion: tod(), verificado_por: verificadoPor
+    }).eq('id', id)
+    if (error) throw new Error(error.message)
+  },
+  async deleteDoc(id) {
+    const { error } = await sb.from('transaccion_docs').delete().eq('id', id)
+    if (error) throw new Error(error.message)
+  },
+}
 // ══════════════════════════════════════════════════════════════════════════════
 function QuickCreate({ title, onClose, children, error, saving }) {
   return (
@@ -413,14 +507,20 @@ function Badge({ label, color, small }) {
 
 // Modal overlay
 function Modal({ title, onClose, width = 520, children }) {
+  useEffect(() => {
+    const handler = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+    <div style={{ position:'fixed', inset:0, background:'rgba(4,18,36,.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
          onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:S2, border:`1px solid ${BR}`, borderRadius:8, width:'100%', maxWidth:width,
                     maxHeight:'90vh', overflowY:'auto', animation:'fi .2s ease' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderBottom:`1px solid ${BR}` }}>
-          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color: G }}>{title}</div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color: TD, fontSize:20, cursor:'pointer', lineHeight:1 }}>×</button>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color: TX, letterSpacing:'.05em' }}>{title}</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color: TD, fontSize:20, cursor:'pointer', lineHeight:1, transition:'color .2s' }}
+            onMouseEnter={e=>e.currentTarget.style.color=TX} onMouseLeave={e=>e.currentTarget.style.color=TD}>×</button>
         </div>
         <div style={{ padding:24 }}>{children}</div>
       </div>
@@ -443,8 +543,8 @@ function Btn({ children, onClick, disabled, variant = 'primary', small, style: e
   }
   return (
     <button onClick={disabled ? undefined : onClick} style={{ ...base, ...variants[variant] }}
-      onMouseOver={e => { if (!disabled) e.currentTarget.style.opacity = '.75' }}
-      onMouseOut={e => { e.currentTarget.style.opacity = disabled ? '.45' : '1' }}>
+      onMouseEnter={e => { if (!disabled) e.currentTarget.style.opacity = '.75' }}
+      onMouseLeave={e => { e.currentTarget.style.opacity = disabled ? '.45' : '1' }}>
       {children}
     </button>
   )
@@ -463,6 +563,404 @@ function Field({ label, children, style: extraStyle }) {
 // Form Row — flex row with gap
 function FR({ children, gap = 12 }) {
   return <div style={{ display:'flex', gap, marginBottom:14, flexWrap:'wrap' }}>{children}</div>
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  MEDIA VIEWER — fullscreen modal for images and PDFs (v8)
+// ══════════════════════════════════════════════════════════════════════════════
+function MediaViewer({ url, tipo, nombre, onClose }) {
+  const [loaded, setLoaded] = useState(false)
+  const isPdf = tipo === 'pdf' || url?.toLowerCase().includes('.pdf') || nombre?.toLowerCase().endsWith('.pdf')
+
+  useEffect(() => {
+    const handler = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,.93)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+      {/* Header */}
+      <div style={{ position:'absolute', top:0, left:0, right:0, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', background:'rgba(0,0,0,.4)', backdropFilter:'blur(4px)' }}>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:TM, letterSpacing:'.1em' }}>{nombre || 'Vista previa'}</div>
+        <div style={{ display:'flex', gap:10 }}>
+          <a href={url} download={nombre || 'archivo'} target="_blank" rel="noopener noreferrer"
+            style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, letterSpacing:'.1em', border:`1px solid ${G}44`, padding:'5px 12px', borderRadius:3, textDecoration:'none' }}>
+            ↓ DESCARGAR
+          </a>
+          <button onClick={onClose}
+            style={{ background:'rgba(255,255,255,.1)', border:'none', color:TX, width:32, height:32, borderRadius:'50%', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+        </div>
+      </div>
+      {/* Content */}
+      <div style={{ width:'92vw', height:'82vh', marginTop:52, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        {isPdf ? (
+          <object data={url} type="application/pdf" width="100%" height="100%" style={{ border:'none', borderRadius:4 }}>
+            <div style={{ textAlign:'center', color:TX, padding:40 }}>
+              <div style={{ fontSize:48, marginBottom:16 }}>📄</div>
+              <p style={{ fontFamily:"'Jost',sans-serif", fontSize:14, color:TM, marginBottom:20 }}>Vista previa no disponible en este navegador</p>
+              <a href={url} download={nombre} style={{ background:G, color:BG, padding:'10px 24px', borderRadius:4, textDecoration:'none', fontFamily:"'DM Mono',monospace", fontSize:11, fontWeight:600 }}>
+                Descargar PDF
+              </a>
+            </div>
+          </object>
+        ) : (
+          <div style={{ position:'relative', maxWidth:'100%', maxHeight:'100%' }}>
+            {!loaded && <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:TM, fontFamily:"'DM Mono',monospace", fontSize:10 }}>Cargando...</div>}
+            <img src={url} alt={nombre || ''} onLoad={() => setLoaded(true)}
+              style={{ maxWidth:'92vw', maxHeight:'82vh', objectFit:'contain', borderRadius:4, opacity:loaded?1:0, transition:'opacity .3s', userSelect:'none' }} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  WATCH GALLERY — 6 photo slots with upload, view, delete (v8)
+// ══════════════════════════════════════════════════════════════════════════════
+const POSICIONES = [
+  { id:'frente',    label:'De Frente',    icon:'◧' },
+  { id:'lado',      label:'De Lado',      icon:'◨' },
+  { id:'reverso',   label:'Reverso',      icon:'◫' },
+  { id:'corona',    label:'Corona',       icon:'⊙' },
+  { id:'brazalete', label:'Brazalete',    icon:'⊏' },
+  { id:'venta',     label:'Foto Venta',   icon:'◈' },
+]
+
+function WatchGallery({ piezaId, fotos, onFotosChange }) {
+  const [uploading, setUploading]  = useState(null)  // posicion uploading
+  const [viewer, setViewer]        = useState(null)   // { url, nombre }
+  const myFotos = fotos.filter(f => f.piezaId === piezaId)
+
+  const uploadFoto = async (posicion, file) => {
+    if (!file) return
+    if (file.size > 8 * 1024 * 1024) { toast('Máximo 8MB por foto', 'error'); return }
+    if (!['image/jpeg','image/png','image/webp','image/heic'].includes(file.type) && !file.name.match(/\.(jpg|jpeg|png|webp|heic)$/i)) {
+      toast('Solo imágenes JPG, PNG o WEBP', 'error'); return
+    }
+    setUploading(posicion)
+    try {
+      // Remove existing photo for same position first
+      const existing = myFotos.find(f => f.posicion === posicion)
+      if (existing) {
+        await storage.deleteFoto(existing.storagePath)
+        await mediaDb.deleteFoto(existing.id)
+        onFotosChange(prev => prev.filter(f => f.id !== existing.id))
+      }
+      const { url, storagePath } = await storage.uploadFoto(piezaId, posicion, file)
+      const newFoto = { id: 'F' + uid(), piezaId, posicion, url, storagePath, createdAt: new Date().toISOString() }
+      await mediaDb.saveFoto(newFoto)
+      onFotosChange(prev => [...prev, newFoto])
+      logAction('create', 'inventario', 'foto', `Subió foto ${posicion} · ${piezaId}`, piezaId)
+      toast(`Foto "${POSICIONES.find(p=>p.id===posicion)?.label}" guardada`)
+    } catch(e) { toast('Error al subir: ' + e.message, 'error') }
+    setUploading(null)
+  }
+
+  const deleteFoto = async (foto) => {
+    if (!window.confirm(`¿Eliminar foto "${POSICIONES.find(p=>p.id===foto.posicion)?.label}"?`)) return
+    try {
+      await storage.deleteFoto(foto.storagePath)
+      await mediaDb.deleteFoto(foto.id)
+      onFotosChange(prev => prev.filter(f => f.id !== foto.id))
+      logAction('delete', 'inventario', 'foto', `Eliminó foto ${foto.posicion}`, piezaId)
+      toast('Foto eliminada', 'info')
+    } catch(e) { toast('Error al eliminar: ' + e.message, 'error') }
+  }
+
+  const shareGallery = () => {
+    const url = `${window.location.origin}${window.location.pathname}?gallery=${piezaId}`
+    navigator.clipboard.writeText(url).then(() => toast('Link de galería copiado ✓'), () => toast(url, 'info'))
+  }
+
+  const hasAny = myFotos.length > 0
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM, letterSpacing:'.12em' }}>
+          GALERÍA · {myFotos.length}/6 FOTOS
+        </div>
+        {hasAny && (
+          <button onClick={shareGallery}
+            style={{ background:'none', border:`1px solid ${G}44`, color:G, padding:'4px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.08em' }}>
+            ↗ COMPARTIR GALERÍA
+          </button>
+        )}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+        {POSICIONES.map(pos => {
+          const foto = myFotos.find(f => f.posicion === pos.id)
+          const isUp = uploading === pos.id
+          return (
+            <div key={pos.id} style={{ position:'relative', aspectRatio:'4/3', borderRadius:6, overflow:'hidden', background:S3, border:`1px solid ${foto ? BRG : BR}` }}>
+              {foto ? (
+                <>
+                  <img src={foto.url} alt={pos.label} loading="lazy"
+                    style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                  <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.5)', opacity:0, transition:'opacity .2s', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                    onMouseEnter={e => e.currentTarget.style.opacity='1'}
+                    onMouseLeave={e => e.currentTarget.style.opacity='0'}>
+                    <button onClick={() => setViewer({ url:foto.url, nombre:pos.label })}
+                      style={{ background:'rgba(255,255,255,.15)', border:'none', color:TX, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:16, backdropFilter:'blur(4px)' }}>⤢</button>
+                    <label style={{ background:'rgba(201,169,110,.2)', border:`1px solid ${G}`, color:G, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
+                      ✎<input type="file" accept="image/*" style={{ display:'none' }} onChange={e => uploadFoto(pos.id, e.target.files?.[0])} />
+                    </label>
+                    <button onClick={() => deleteFoto(foto)}
+                      style={{ background:'rgba(224,90,90,.2)', border:`1px solid ${RED}`, color:RED, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:16, backdropFilter:'blur(4px)' }}>✕</button>
+                  </div>
+                  <div style={{ position:'absolute', bottom:0, left:0, right:0, background:'linear-gradient(transparent,rgba(0,0,0,.7))', padding:'16px 8px 6px', fontFamily:"'DM Mono',monospace", fontSize:8, color:'rgba(255,255,255,.7)', letterSpacing:'.1em' }}>
+                    {pos.label.toUpperCase()}
+                  </div>
+                </>
+              ) : (
+                <label style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', cursor:isUp?'wait':'pointer', gap:6 }}>
+                  {isUp ? (
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, animation:'pulse 1s infinite', letterSpacing:'.1em' }}>SUBIENDO...</div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize:20, color:TD }}>{pos.icon}</div>
+                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', textAlign:'center' }}>{pos.label.toUpperCase()}</div>
+                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM, letterSpacing:'.08em' }}>+ SUBIR</div>
+                    </>
+                  )}
+                  {!isUp && <input type="file" accept="image/*" style={{ display:'none' }} onChange={e => uploadFoto(pos.id, e.target.files?.[0])} />}
+                </label>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {viewer && <MediaViewer url={viewer.url} nombre={viewer.nombre} onClose={() => setViewer(null)} />}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  COMPLIANCE DOCS — transaction documents with verification (v8)
+// ══════════════════════════════════════════════════════════════════════════════
+const DOC_TIPOS_COMPRA = [
+  { id:'id_vendedor',     label:'Identificación Vendedor', icono:'🪪', requerido:true  },
+  { id:'tarjeta_vendedor',label:'Tarjeta Vendedor',        icono:'💳', requerido:false },
+  { id:'contrato_compra', label:'Contrato Compra',         icono:'📑', requerido:false },
+  { id:'factura_compra',  label:'Factura / Recibo',        icono:'🧾', requerido:false },
+  { id:'cert_autenticidad',label:'Cert. Autenticidad',     icono:'✅', requerido:false },
+  { id:'nda_compra',      label:'NDA',                     icono:'🔒', requerido:false },
+  { id:'otro_compra',     label:'Otro Documento',          icono:'📋', requerido:false },
+]
+const DOC_TIPOS_VENTA = [
+  { id:'id_comprador',    label:'Identificación Comprador',icono:'🪪', requerido:true  },
+  { id:'tarjeta_comprador',label:'Tarjeta Comprador',      icono:'💳', requerido:false },
+  { id:'contrato_venta',  label:'Contrato Venta',          icono:'📑', requerido:false },
+  { id:'recibo_venta',    label:'Recibo / Factura Venta',  icono:'🧾', requerido:false },
+  { id:'carta_garantia',  label:'Carta Garantía',          icono:'🛡️', requerido:false },
+  { id:'nda_venta',       label:'NDA',                     icono:'🔒', requerido:false },
+  { id:'otro_venta',      label:'Otro Documento',          icono:'📋', requerido:false },
+]
+
+function ComplianceDocs({ entidadTipo, entidadId, docs, onDocsChange, currentUserName }) {
+  const tipos   = entidadTipo === 'pieza' ? DOC_TIPOS_COMPRA : DOC_TIPOS_VENTA
+  const myDocs  = docs.filter(d => d.entidadTipo === entidadTipo && d.entidadId === entidadId)
+  const [uploading, setUploading] = useState(null)
+  const [viewer, setViewer]       = useState(null)
+  const required = tipos.filter(t => t.requerido)
+  const missing  = required.filter(t => !myDocs.find(d => d.tipo === t.id))
+
+  const uploadDoc = async (tipoId, file) => {
+    if (!file) return
+    if (file.size > 15 * 1024 * 1024) { toast('Máximo 15MB por documento', 'error'); return }
+    setUploading(tipoId)
+    try {
+      const { url, storagePath } = await storage.uploadDoc(entidadTipo, entidadId, tipoId, file)
+      const newDoc = {
+        id: 'D' + uid(), entidadTipo, entidadId, tipo: tipoId,
+        nombreArchivo: file.name, url, storagePath,
+        verificado: false, fechaVerificacion: null, verificadoPor: null,
+        createdAt: new Date().toISOString()
+      }
+      await mediaDb.saveDoc(newDoc)
+      onDocsChange(prev => [...prev.filter(d => !(d.entidadTipo===entidadTipo && d.entidadId===entidadId && d.tipo===tipoId)), newDoc])
+      logAction('create', 'compliance', 'documento', `Subió doc "${tipos.find(t=>t.id===tipoId)?.label}"`, entidadId)
+      toast(`Documento "${tipos.find(t=>t.id===tipoId)?.label}" guardado`)
+    } catch(e) { toast('Error al subir doc: ' + e.message, 'error') }
+    setUploading(null)
+  }
+
+  const verifyDoc = async (doc) => {
+    try {
+      await mediaDb.verifyDoc(doc.id, currentUserName || 'Director')
+      onDocsChange(prev => prev.map(d => d.id !== doc.id ? d : { ...d, verificado:true, fechaVerificacion:tod(), verificadoPor:currentUserName||'Director' }))
+      logAction('edit', 'compliance', 'documento', `Verificó doc "${tipos.find(t=>t.id===doc.tipo)?.label}"`, entidadId)
+      toast('Documento verificado ✓')
+    } catch(e) { toast('Error al verificar: ' + e.message, 'error') }
+  }
+
+  const deleteDoc = async (doc) => {
+    if (!window.confirm(`¿Eliminar "${tipos.find(t=>t.id===doc.tipo)?.label}"?`)) return
+    try {
+      await storage.deleteDoc(doc.storagePath)
+      await mediaDb.deleteDoc(doc.id)
+      onDocsChange(prev => prev.filter(d => d.id !== doc.id))
+      logAction('delete', 'compliance', 'documento', `Eliminó doc "${tipos.find(t=>t.id===doc.tipo)?.label}"`, entidadId)
+      toast('Documento eliminado', 'info')
+    } catch(e) { toast('Error: ' + e.message, 'error') }
+  }
+
+  const openDoc = async (doc) => {
+    // Refresh signed URL for private docs
+    try {
+      const freshUrl = await storage.refreshDocUrl(doc.storagePath)
+      setViewer({ url: freshUrl || doc.url, nombre: doc.nombreArchivo || tipos.find(t=>t.id===doc.tipo)?.label })
+    } catch { setViewer({ url: doc.url, nombre: doc.nombreArchivo }) }
+  }
+
+  const inputStyle = { background:S3, border:`1px solid ${BR}`, color:TX, padding:'8px 12px', borderRadius:4, fontFamily:"'Jost',sans-serif", fontSize:12, width:'100%', outline:'none' }
+
+  return (
+    <div>
+      {/* Missing required docs warning */}
+      {missing.length > 0 && (
+        <div style={{ background:RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'8px 12px', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:RED, fontSize:14 }}>⚠</span>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:RED, letterSpacing:'.05em' }}>
+            Documentos requeridos pendientes: {missing.map(m => m.label).join(', ')}
+          </span>
+        </div>
+      )}
+      {missing.length === 0 && myDocs.length > 0 && (
+        <div style={{ background:GRN+'11', border:`1px solid ${GRN}33`, borderRadius:4, padding:'8px 12px', marginBottom:12 }}>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:GRN, letterSpacing:'.05em' }}>✓ Documentos requeridos completos · {myDocs.length} archivo(s)</span>
+        </div>
+      )}
+
+      {/* Document slots */}
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {tipos.map(tipo => {
+          const doc = myDocs.find(d => d.tipo === tipo.id)
+          const isUp = uploading === tipo.id
+          return (
+            <div key={tipo.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:S2, borderRadius:4, border:`1px solid ${doc ? (doc.verificado ? GRN+'44' : BRG) : BR}` }}>
+              <span style={{ fontSize:16, flexShrink:0 }}>{tipo.icono}</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:doc?TX:TD }}>{tipo.label}</span>
+                  {tipo.requerido && !doc && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:RED, letterSpacing:'.08em' }}>REQUERIDO</span>}
+                  {doc?.verificado && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:GRN, letterSpacing:'.08em' }}>✓ VERIFICADO</span>}
+                </div>
+                {doc && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginTop:2 }}>
+                  {doc.nombreArchivo} · {doc.fechaVerificacion ? `verificado ${fmtD(doc.fechaVerificacion)}` : fmtD(doc.createdAt?.slice(0,10))}
+                </div>}
+              </div>
+              <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                {doc ? (
+                  <>
+                    <button onClick={() => openDoc(doc)}
+                      style={{ background:'none', border:`1px solid ${BR}`, color:BLU, padding:'3px 8px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:8, cursor:'pointer', letterSpacing:'.06em' }}>
+                      VER
+                    </button>
+                    {!doc.verificado && (
+                      <button onClick={() => verifyDoc(doc)}
+                        style={{ background:'none', border:`1px solid ${GRN}44`, color:GRN, padding:'3px 8px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:8, cursor:'pointer', letterSpacing:'.06em' }}>
+                        ✓ VERIFICAR
+                      </button>
+                    )}
+                    <label style={{ background:'none', border:`1px solid ${BR}`, color:TM, padding:'3px 8px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:8, cursor:'pointer', letterSpacing:'.06em' }}>
+                      ↺<input type="file" accept="image/*,.pdf" style={{ display:'none' }} onChange={e => uploadDoc(tipo.id, e.target.files?.[0])} />
+                    </label>
+                    <button onClick={() => deleteDoc(doc)}
+                      style={{ background:'none', border:'none', color:RED, padding:'3px 6px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:10, cursor:'pointer' }}>✕</button>
+                  </>
+                ) : (
+                  <label style={{ background:isUp?'transparent':S3, border:`1px solid ${isUp?G:BRG}`, color:isUp?G:TM, padding:'4px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:8, cursor:isUp?'wait':'pointer', letterSpacing:'.08em', display:'flex', alignItems:'center', gap:4 }}>
+                    {isUp ? '...' : '+ SUBIR'}{!isUp && <input type="file" accept="image/*,.pdf" style={{ display:'none' }} onChange={e => uploadDoc(tipo.id, e.target.files?.[0])} />}
+                  </label>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {viewer && <MediaViewer url={viewer.url} nombre={viewer.nombre} onClose={() => setViewer(null)} />}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PUBLIC GALLERY — shareable page without login (v8)
+// ══════════════════════════════════════════════════════════════════════════════
+function PublicGallery({ piezaId }) {
+  const [fotos, setFotos]    = useState([])
+  const [info, setInfo]      = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [viewer, setViewer]   = useState(null)
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: piezaFotos }, { data: pieza }] = await Promise.all([
+        sb.from('pieza_fotos').select('*').eq('pieza_id', piezaId).order('created_at'),
+        sb.from('piezas').select('*').eq('id', piezaId).maybeSingle()
+      ])
+      if (pieza) {
+        const { data: ref } = await sb.from('referencias').select('*, modelos(*, marcas(*))').eq('id', pieza.ref_id).maybeSingle()
+        setInfo({ brand: ref?.modelos?.marcas?.name, model: ref?.modelos?.name, refNum: ref?.ref, serial: pieza.serial })
+      }
+      setFotos((piezaFotos || []).map(f => ({ id:f.id, posicion:f.posicion, url:f.url })))
+      setLoading(false)
+    }
+    load()
+  }, [piezaId])
+
+  if (loading) return (
+    <div style={{ minHeight:'100vh', background:BG, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:TM, animation:'pulse 1.2s infinite', letterSpacing:'.2em' }}>CARGANDO...</div>
+    </div>
+  )
+
+  return (
+    <div style={{ minHeight:'100vh', background:BG, padding:32 }}>
+      <style>{`@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}`}</style>
+      {/* Header */}
+      <div style={{ textAlign:'center', marginBottom:32, animation:'fi .4s ease' }}>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:11, color:TM, letterSpacing:'.4em', textTransform:'uppercase', marginBottom:6 }}>The Wrist Room</div>
+        {info && <>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:32, color:TX, marginBottom:6 }}>{info.brand} {info.model}</div>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:G }}>{info.refNum}{info.serial ? ` · S/N ${info.serial}` : ''}</div>
+        </>}
+        <div style={{ marginTop:16, width:40, height:1, background:G, margin:'16px auto 0' }} />
+      </div>
+
+      {fotos.length === 0 ? (
+        <div style={{ textAlign:'center', padding:60, fontFamily:"'DM Mono',monospace", fontSize:11, color:TD }}>Sin fotos disponibles</div>
+      ) : (
+        <div style={{ maxWidth:1000, margin:'0 auto', display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:16 }}>
+          {fotos.map(foto => {
+            const pos = POSICIONES.find(p => p.id === foto.posicion)
+            return (
+              <div key={foto.id} onClick={() => setViewer(foto)} style={{ cursor:'pointer', borderRadius:8, overflow:'hidden', background:S1, border:`1px solid ${BR}`, animation:'fi .4s ease' }}>
+                <div style={{ aspectRatio:'4/3', overflow:'hidden' }}>
+                  <img src={foto.url} alt={pos?.label} style={{ width:'100%', height:'100%', objectFit:'cover', transition:'transform .3s' }}
+                    onMouseEnter={e => e.target.style.transform='scale(1.04)'}
+                    onMouseLeave={e => e.target.style.transform='scale(1)'} />
+                </div>
+                <div style={{ padding:'10px 14px', fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, letterSpacing:'.12em' }}>
+                  {pos?.label?.toUpperCase() || foto.posicion.toUpperCase()}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div style={{ textAlign:'center', marginTop:48, fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, letterSpacing:'.15em' }}>
+        POWERED BY THE WRIST ROOM · CERTIFIED
+      </div>
+
+      {viewer && <MediaViewer url={viewer.url} nombre={POSICIONES.find(p=>p.id===viewer.posicion)?.label || viewer.posicion} onClose={() => setViewer(null)} />}
+    </div>
+  )
 }
 
 // Info row for detail panels
@@ -520,7 +1018,7 @@ function SH({ title, subtitle, action, onAction }) {
           style={{ padding:'8px 18px', background: G, border:'none', borderRadius:4, color: BG,
                    fontFamily:"'DM Mono',monospace", fontSize:10, letterSpacing:'.15em', cursor:'pointer',
                    transition:'opacity .2s', whiteSpace:'nowrap' }}
-          onMouseOver={e=>e.target.style.opacity='.8'} onMouseOut={e=>e.target.style.opacity='1'}>
+          onMouseEnter={e=>e.currentTarget.style.opacity='.8'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
           {action}
         </button>
       )}
@@ -625,11 +1123,13 @@ function DonutChart({ slices, size = 120 }) {
 }
 
 function DashboardModule({ state }) {
-  const { watches, sales, investors, brands, models, refs, clients } = state
+  const { watches, sales, socios, brands, models, refs, clients } = state
   const inv     = watches.filter(w => w.stage === 'inventario')
   const opp     = watches.filter(w => w.stage === 'oportunidad')
   const sold    = watches.filter(w => w.stage === 'liquidado')
-  const capital = investors.reduce((a, i) => a + i.capitalAportado, 0)
+  // Capital = suma de aportaciones de todos los socios
+  const capital = socios.reduce((a, s) =>
+    a + (s.movimientos || []).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
   const utilidad = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
   const porCobrar = sales.filter(s => s.status !== 'Liquidado').reduce((a, s) => { const c = (s.payments || []).reduce((x, p) => x + p.amount, 0); return a + (s.agreedPrice - c) }, 0)
   const valorInventario = inv.reduce((a, w) => a + (w.cost || 0), 0)
@@ -640,7 +1140,7 @@ function DashboardModule({ state }) {
     const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
     const label = d.toLocaleDateString('es-MX', { month: 'short' }).toUpperCase().slice(0, 3)
     const value = sales.filter(s => {
-      const sd = new Date(s.date)
+      const sd = new Date(s.saleDate)
       return sd.getFullYear() === d.getFullYear() && sd.getMonth() === d.getMonth()
     }).reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
     return { label, value: Math.max(value, 0) }
@@ -695,7 +1195,7 @@ function DashboardModule({ state }) {
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
-        <KPI label="Capital Total"      value={fmt(capital)}          sub={`${investors.length} socios`} />
+        <KPI label="Capital Total"      value={fmt(capital)}          sub={`${socios.length} socios`} />
         <KPI label="Valor Inventario"   value={fmt(valorInventario)}  sub={`${inv.length} piezas activas`} accent={GRN} />
         <KPI label="Por Cobrar"         value={fmt(porCobrar)}        accent={porCobrar > 0 ? RED : GRN} sub={porCobrar > 0 ? 'Pendiente de pago' : 'Sin saldos pendientes'} />
         <KPI label="Utilidad Acumulada" value={fmt(utilidad)}         sub={`${sold.length} relojes vendidos`} accent={BLU} />
@@ -742,20 +1242,23 @@ function DashboardModule({ state }) {
         <div style={card}>
           <div style={cardHdr}>CAPITAL POR SOCIO</div>
           <div style={{ padding: 14 }}>
-            {investors.length === 0
+            {socios.length === 0
               ? <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, textAlign: 'center', paddingTop: 20 }}>Sin socios registrados</div>
-              : investors.map((inv, i) => (
+              : socios.map((inv, i) => {
+                  const aportes = (inv.movimientos || []).filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
+                  return (
                 <div key={inv.id} style={{ marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{inv.name.split(',')[0]}</span>
+                    <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{inv.name.split(' ')[0]}</span>
                     <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{inv.participacion}%</span>
                   </div>
                   <div style={{ background: S3, borderRadius: 2, height: 4, overflow: 'hidden' }}>
-                    <div style={{ background: [G, BLU, GRN, PRP][i % 4], height: '100%', width: `${inv.participacion}%`, transition: 'width .5s ease' }} />
+                    <div style={{ background: inv.color || [G, BLU, GRN, PRP][i % 4], height: '100%', width: `${inv.participacion}%`, transition: 'width .5s ease' }} />
                   </div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 3 }}>{fmt(inv.capitalAportado)}</div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 3 }}>{fmt(aportes)}</div>
                 </div>
-              ))}
+                  )
+              })}
           </div>
         </div>
       </div>
@@ -828,6 +1331,7 @@ function InventarioModule({ state, setState }) {
   const [showSale, setShowSale] = useState(false)
   const [showPay, setShowPay]   = useState(null)
   const [search, setSearch]     = useState('')
+  const [detailTab, setDetailTab] = useState('info')  // 'info' | 'fotos' | 'docs'
 
   const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
   const [wf, setWf] = useState({ ...blank })
@@ -977,6 +1481,7 @@ function InventarioModule({ state, setState }) {
     setState(s => ({ ...s, watches: [...s.watches, watch] }))
     try {
       await db.saveWatch(watch)
+      logAction('create', 'inventario', 'pieza', `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)}`, watch.id)
       toast('Pieza registrada en inventario')
       setShowAdd(false)
       setWf({ ...blank })
@@ -1013,6 +1518,7 @@ function InventarioModule({ state, setState }) {
     setSelWatch(p => ({ ...p, stage: 'inventario', status: 'Disponible', validatedBy: 'Director' }))
     try {
       await db.updateWatchStage(w.id, 'inventario', 'Disponible', extra)
+      logAction('edit', 'inventario', 'pieza', `Aprobó pieza ${w.serial || w.id} → Inventario`, w.id)
       toast('Pieza aprobada · ahora en inventario')
     } catch (e) {
       // Rollback
@@ -1038,6 +1544,7 @@ function InventarioModule({ state, setState }) {
     try {
       await db.updateWatchStage(selWatch.id, 'liquidado', 'Vendido')
       await db.saveVenta(sale)
+      logAction('create', 'ventas', 'venta', `Registró venta por ${fmt(sale.agreedPrice)}`, sale.id)
       toast('Venta registrada correctamente')
       setShowSale(false)
       setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
@@ -1075,6 +1582,7 @@ function InventarioModule({ state, setState }) {
       const newStatus = newTotal >= (sale?.agreedPrice || 0) ? 'Liquidado' : newTotal > 0 ? 'Parcial' : 'Pendiente'
       await db.savePago(pago)
       await db.updateVentaStatus(saleId, newStatus)
+      logAction('create', 'ventas', 'pago', `Registró pago ${fmt(pago.amount)} · ${pago.method} (Inventario)`, saleId)
       toast('Pago registrado')
       setShowPay(null)
       setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
@@ -1155,7 +1663,19 @@ function InventarioModule({ state, setState }) {
 
       {/* DETAIL MODAL */}
       {selWatch && (
-        <Modal title={`${selBrand?.name || ''} ${selModel?.name || ''}`} onClose={() => setSelWatch(null)} width={700}>
+        <Modal title={`${selBrand?.name || ''} ${selModel?.name || ''}`} onClose={() => { setSelWatch(null); setDetailTab('info') }} width={740}>
+          {/* Tabs */}
+          <div style={{ display:'flex', borderBottom:`1px solid ${BR}`, marginBottom:18, gap:0 }}>
+            {[['info','◈ Info'],['fotos',`◧ Fotos (${state.fotos.filter(f=>f.piezaId===selWatch.id).length})`],['docs_compra',`📋 Docs Compra (${state.docs.filter(d=>d.entidadTipo==='pieza'&&d.entidadId===selWatch.id).length})`]].map(([id,label]) => (
+              <button key={id} onClick={() => setDetailTab(id)}
+                style={{ background:'none', border:'none', borderBottom:`2px solid ${detailTab===id?G:'transparent'}`, color:detailTab===id?G:TM, cursor:'pointer', fontFamily:"'DM Mono',monospace", fontSize:9, letterSpacing:'.12em', padding:'8px 16px', transition:'all .2s' }}>
+                {label.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          {/* ── INFO TAB ── */}
+          {detailTab === 'info' && (<>
           <div style={{ display: 'flex', gap: 0, marginBottom: 20, background: S2, borderRadius: 4, overflow: 'hidden' }}>
             {[['oportunidad', 'Oportunidad', PRP], ['inventario', 'En Inventario', GRN], ['liquidado', 'Vendido', TM]].map(([id, label, color], i, arr) => (
               <div key={id} style={{ flex: 1, textAlign: 'center', padding: '9px 4px', background: selWatch.stage === id ? color + '22' : 'transparent', borderRight: i < arr.length - 1 ? `1px solid ${BR}` : 'none' }}>
@@ -1319,6 +1839,27 @@ function InventarioModule({ state, setState }) {
             {selWatch.stage === 'oportunidad' && <Btn variant="ghost" small onClick={() => approve(selWatch)}>✓ Aprobar → Inventario</Btn>}
             {selWatch.stage === 'inventario' && !selSale && <Btn small onClick={() => setShowSale(true)}>Registrar Venta</Btn>}
           </div>
+          </>)}
+
+          {/* ── FOTOS TAB ── */}
+          {detailTab === 'fotos' && (
+            <WatchGallery
+              piezaId={selWatch.id}
+              fotos={state.fotos}
+              onFotosChange={updater => setState(s => ({ ...s, fotos: typeof updater === 'function' ? updater(s.fotos) : updater }))}
+            />
+          )}
+
+          {/* ── DOCS COMPRA TAB ── */}
+          {detailTab === 'docs_compra' && (
+            <ComplianceDocs
+              entidadTipo="pieza"
+              entidadId={selWatch.id}
+              docs={state.docs}
+              onDocsChange={updater => setState(s => ({ ...s, docs: typeof updater === 'function' ? updater(s.docs) : updater }))}
+              currentUserName={null}
+            />
+          )}
         </Modal>
       )}
 
@@ -1630,8 +2171,9 @@ function InventarioModule({ state, setState }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function VentasModule({ state, setState }) {
   const { watches, sales, clients, brands, models, refs } = state
-  const [showPay, setShowPay] = useState(null)
-  const [pf, setPf]           = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+  const [showPay, setShowPay]   = useState(null)
+  const [showDocs, setShowDocs] = useState(null) // saleId
+  const [pf, setPf]             = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
 
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
 
@@ -1660,6 +2202,7 @@ function VentasModule({ state, setState }) {
       const newStatus = newTotal >= (sale?.agreedPrice || 0) ? 'Liquidado' : newTotal > 0 ? 'Parcial' : 'Pendiente'
       await db.savePago(pago)
       await db.updateVentaStatus(saleId, newStatus)
+      logAction('create', 'ventas', 'pago', `Registró pago ${fmt(pago.amount)} · ${pago.method}`, saleId)
       toast('Pago registrado')
       setShowPay(null)
       setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
@@ -1753,6 +2296,27 @@ function VentasModule({ state, setState }) {
                   </Btn>
                 )
               )}
+              {/* Compliance docs toggle */}
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BR}` }}>
+                <button onClick={() => setShowDocs(showDocs === sale.id ? null : sale.id)}
+                  style={{ background:'none', border:`1px solid ${BR}`, color:TM, padding:'4px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.08em', display:'flex', alignItems:'center', gap:6 }}>
+                  📋 DOCUMENTOS VENTA ({state.docs.filter(d => d.entidadTipo==='venta' && d.entidadId===sale.id).length})
+                  {state.docs.filter(d => d.entidadTipo==='venta' && d.entidadId===sale.id && !d.verificado).length > 0 &&
+                    <span style={{ background:RED+'33', color:RED, borderRadius:99, padding:'1px 6px', fontSize:8 }}>sin verificar</span>}
+                  <span style={{ marginLeft:2 }}>{showDocs === sale.id ? '▲' : '▼'}</span>
+                </button>
+                {showDocs === sale.id && (
+                  <div style={{ marginTop:10 }}>
+                    <ComplianceDocs
+                      entidadTipo="venta"
+                      entidadId={sale.id}
+                      docs={state.docs}
+                      onDocsChange={updater => setState(s => ({ ...s, docs: typeof updater === 'function' ? updater(s.docs) : updater }))}
+                      currentUserName={null}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
@@ -1770,12 +2334,16 @@ function VentasModule({ state, setState }) {
 //  REPORTES
 // ══════════════════════════════════════════════════════════════════════════════
 function ReportesModule({ state }) {
-  const { watches, sales, investors, brands, models, refs } = state
-  const utilidad  = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
-  const capital   = investors.reduce((a, i) => a + i.capitalAportado, 0)
+  const { watches, sales, socios, brands, models, refs } = state
+  const utilidad  = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0) - (w?.costos || []).reduce((x, c) => x + c.monto, 0)) }, 0)
+  const capital   = socios.reduce((a, s) => a + (s.movimientos || []).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
   const roi       = capital > 0 ? (utilidad / capital * 100).toFixed(1) : 0
   const margenProm = sales.length > 0 ? (sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) / s.agreedPrice * 100 }, 0) / sales.length).toFixed(1) : 0
-  const distInv   = investors.map(inv => { const dist = (inv.movimientos || []).filter(m => m.tipo === 'Distribución' || m.tipo === 'Retiro').reduce((a, m) => a + Math.abs(m.monto), 0); const corr = utilidad * inv.participacion / 100; return { ...inv, dist, corr, pend: corr - dist } })
+  const distInv   = socios.map(s => {
+    const dist = (s.movimientos || []).filter(m => m.monto < 0).reduce((a, m) => a + Math.abs(m.monto), 0)
+    const corr = utilidad * s.participacion / 100
+    return { ...s, dist, corr, pend: corr - dist }
+  })
 
   return (
     <div>
@@ -2553,11 +3121,13 @@ function ContactosModule({ state, setState }) {
         const updated = { ...editCliente, ...cf }
         setState(s => ({ ...s, clients: s.clients.map(x => x.id === editCliente.id ? updated : x) }))
         await db.saveClient(updated)
+        logAction('edit', 'contactos', 'cliente', `Editó cliente "${cf.name}"`, editCliente.id)
         toast('Cliente actualizado correctamente')
       } else {
         const client = { ...cf, id: 'C' + uid(), totalSpent: 0, totalPurchases: 0 }
         setState(s => ({ ...s, clients: [...(s.clients || []), client] }))
         await db.saveClient(client)
+        logAction('create', 'contactos', 'cliente', `Creó cliente "${cf.name}"`, client.id)
         toast('Cliente guardado correctamente')
       }
       setShowClienteForm(false)
@@ -2571,6 +3141,7 @@ function ContactosModule({ state, setState }) {
     try {
       const { error } = await sb.from('clientes').delete().eq('id', c.id)
       if (error) throw new Error(error.message)
+      logAction('delete', 'contactos', 'cliente', `Eliminó cliente "${c.name}"`, c.id)
       toast('Cliente eliminado', 'info')
     } catch (e) {
       setState(s => ({ ...s, clients: prev }))
@@ -2584,11 +3155,13 @@ function ContactosModule({ state, setState }) {
         const updated = { ...editProveedor, ...pf, rating: +pf.rating }
         setState(s => ({ ...s, suppliers: s.suppliers.map(x => x.id === editProveedor.id ? updated : x) }))
         await db.saveSupplier(updated)
+        logAction('edit', 'contactos', 'proveedor', `Editó proveedor "${pf.name}"`, editProveedor.id)
         toast('Proveedor actualizado correctamente')
       } else {
         const supplier = { ...pf, id: 'P' + uid(), rating: +pf.rating, totalDeals: 0 }
         setState(s => ({ ...s, suppliers: [...(s.suppliers || []), supplier] }))
         await db.saveSupplier(supplier)
+        logAction('create', 'contactos', 'proveedor', `Creó proveedor "${pf.name}"`, supplier.id)
         toast('Proveedor guardado correctamente')
       }
       setShowProveedorForm(false)
@@ -2602,6 +3175,7 @@ function ContactosModule({ state, setState }) {
     try {
       const { error } = await sb.from('proveedores').delete().eq('id', p.id)
       if (error) throw new Error(error.message)
+      logAction('delete', 'contactos', 'proveedor', `Eliminó proveedor "${p.name}"`, p.id)
       toast('Proveedor eliminado', 'info')
     } catch (e) {
       setState(s => ({ ...s, suppliers: prev }))
@@ -2925,19 +3499,198 @@ function PendingScreen({ user, onLogout }) {
   )
 }
 
-function AdminModule({ currentUser }) {
+// ══════════════════════════════════════════════════════════════════════════════
+//  MI CUENTA — Vista exclusiva para Inversionistas
+// ══════════════════════════════════════════════════════════════════════════════
+function MiCuentaModule({ state, authUser }) {
+  const { socios, watches, sales } = state
+  // Find the socio matching this auth user (by email or name)
+  const socio = socios.find(s =>
+    s.email === authUser?.email ||
+    s.name?.toLowerCase().includes(authUser?.email?.split('@')[0]?.toLowerCase() || '__')
+  ) || socios[0] // fallback to first socio
+
+  if (!socio) return (
+    <div>
+      <SH title="Mi Cuenta" subtitle="Portal del Inversionista" />
+      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: 40, textAlign: 'center' }}>
+        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, letterSpacing: '.2em' }}>
+          SIN PERFIL ASIGNADO · CONTACTA AL DIRECTOR
+        </div>
+      </div>
+    </div>
+  )
+
+  const movs = socio.movimientos || []
+  const aportes  = movs.filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
+  const retirado = movs.filter(m => m.monto < 0).reduce((a, m) => a + Math.abs(m.monto), 0)
+  const netPos   = aportes - retirado
+
+  // Calcular utilidad total del fondo
+  const utilidadTotal = sales.reduce((a, s) => {
+    const w = watches.find(x => x.id === s.watchId)
+    return a + (s.agreedPrice - (w?.cost || 0) - (w?.costos || []).reduce((x, c) => x + c.monto, 0))
+  }, 0)
+  const utCorresponde = utilidadTotal * socio.participacion / 100
+  const utPendiente   = utCorresponde - retirado
+
+  const card = { background: S1, border: `1px solid ${BR}`, borderRadius: 6 }
+
+  return (
+    <div style={{ animation: 'fi .4s ease' }}>
+      {/* Header personalizado */}
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ width: 52, height: 52, borderRadius: '50%', background: socio.color + '33',
+          border: `2px solid ${socio.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, color: socio.color }}>
+            {socio.name?.charAt(0).toUpperCase()}
+          </span>
+        </div>
+        <div>
+          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, color: TX, fontWeight: 600 }}>{socio.name}</div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', marginTop: 2 }}>
+            INVERSIONISTA · {socio.participacion}% DEL FONDO
+          </div>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+        <KPI label="Capital Aportado"     value={fmt(aportes)}        accent={G} />
+        <KPI label="Utilidad Acumulada"   value={fmt(utCorresponde)}  accent={GRN} sub={`${socio.participacion}% del fondo`} />
+        <KPI label="Ya Distribuido"       value={fmt(retirado)}       accent={BLU} />
+        <KPI label="Pendiente de Cobro"   value={fmt(utPendiente > 0 ? utPendiente : 0)} accent={utPendiente > 0 ? G : GRN}
+          sub={utPendiente <= 0 ? 'Sin pendientes' : 'Por distribuir'} />
+      </div>
+
+      {/* Fondo performance */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        <div style={card}>
+          <div style={{ padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>
+            RESUMEN DEL FONDO
+          </div>
+          <div style={{ padding: 18 }}>
+            {[
+              ['Piezas en Inventario', watches.filter(w => w.stage === 'inventario').length, GRN],
+              ['Piezas Vendidas',      watches.filter(w => w.stage === 'liquidado').length,  BLU],
+              ['Ventas Totales',       sales.length,                                          G  ],
+            ].map(([l, v, c]) => (
+              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TM }}>{l}</span>
+                <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, color: c }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ borderTop: `1px solid ${BR}`, paddingTop: 14, marginTop: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, letterSpacing: '.1em' }}>UTILIDAD TOTAL FONDO</span>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: GRN }}>{fmt(utilidadTotal)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={{ padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>
+            TU POSICIÓN
+          </div>
+          <div style={{ padding: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TM }}>Participación</span>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: G }}>{socio.participacion}%</span>
+            </div>
+            <div style={{ background: S3, borderRadius: 2, height: 6, marginBottom: 18, overflow: 'hidden' }}>
+              <div style={{ background: socio.color || G, height: '100%', width: `${socio.participacion}%`, borderRadius: 2 }} />
+            </div>
+            {[
+              ['Capital puesto',     fmt(aportes),        TX ],
+              ['Te corresponde',     fmt(utCorresponde),  GRN],
+              ['Retirado',           fmt(retirado),       BLU],
+              ['Posición neta',      fmt(netPos),         G  ],
+            ].map(([l, v, c]) => (
+              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM }}>{l}</span>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: c }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Historial de movimientos */}
+      <div style={card}>
+        <div style={{ padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>
+          HISTORIAL DE MOVIMIENTOS
+        </div>
+        {movs.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>
+            Sin movimientos registrados
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${BR}` }}>
+                {['Fecha', 'Tipo', 'Concepto', 'Monto'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '9px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...movs].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map(m => (
+                <tr key={m.id} style={{ borderBottom: `1px solid ${BR}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = S2}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <td style={{ padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>{m.fecha}</td>
+                  <td style={{ padding: '10px 16px' }}><Badge label={m.tipo} color={m.monto > 0 ? GRN : G} small /></td>
+                  <td style={{ padding: '10px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TM }}>{m.concepto || '—'}</td>
+                  <td style={{ padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 12,
+                    color: m.monto > 0 ? GRN : G, textAlign: 'right' }}>
+                    {m.monto > 0 ? '+' : ''}{fmt(m.monto)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AdminModule({ currentUser, currentRole }) {
   const [users, setUsers]       = useState([])
   const [loading, setLoading]   = useState(true)
   const [editUser, setEditUser] = useState(null)
   const [uf, setUf]             = useState({ name: '', role: 'pending', active: true })
+  const [tab, setTab]           = useState('usuarios')     // 'usuarios' | 'auditoria'
+
+  // Audit state
+  const [auditLog, setAuditLog]       = useState([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditFilter, setAuditFilter] = useState({ action: '', module: '', user: '' })
+  const [auditPage, setAuditPage]     = useState(0)
+  const AUDIT_PAGE_SIZE = 50
+
+  const isSuperuser = currentRole === 'superuser'
 
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
+
+  const loadAudit = async () => {
+    setAuditLoading(true)
+    const { data } = await sb.from('audit_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500)
+    setAuditLog(data || [])
+    setAuditLoading(false)
+  }
 
   useEffect(() => {
     sb.from('profiles').select('*').order('created_at').then(({ data }) => {
       setUsers(data || [])
       setLoading(false)
     })
+    if (isSuperuser) loadAudit()
+
   }, [])
 
   const openEdit = (u) => {
@@ -2952,6 +3705,7 @@ function AdminModule({ currentUser }) {
     try {
       const { error } = await sb.from('profiles').update({ name: uf.name, role: uf.role, active: uf.active }).eq('id', editUser.id)
       if (error) throw new Error(error.message)
+      logAction('edit', 'admin', 'usuario', `Cambió rol de "${editUser.email}" → ${uf.role}`, editUser.id)
       toast(`Usuario "${uf.name || editUser.email}" actualizado`)
       setEditUser(null)
     } catch (e) {
@@ -2967,6 +3721,7 @@ function AdminModule({ currentUser }) {
     try {
       const { error } = await sb.from('profiles').update({ active }).eq('id', u.id)
       if (error) throw new Error(error.message)
+      logAction('edit', 'admin', 'usuario', `${active ? 'Activó' : 'Desactivó'} usuario "${u.email}"`, u.id)
       toast(active ? 'Usuario activado' : 'Usuario desactivado', 'info')
     } catch (e) {
       setUsers(us => us.map(x => x.id === u.id ? { ...x, active: !active } : x))
@@ -2982,6 +3737,7 @@ function AdminModule({ currentUser }) {
     try {
       const { error } = await sb.from('profiles').delete().eq('id', u.id)
       if (error) throw new Error(error.message)
+      logAction('delete', 'admin', 'usuario', `Eliminó usuario "${u.email}"`, u.id)
       toast('Usuario eliminado del sistema', 'info')
     } catch (e) {
       setUsers(prev)
@@ -2989,62 +3745,204 @@ function AdminModule({ currentUser }) {
     }
   }
 
-  const roleColor = { director: G, operador: BLU, inversionista: GRN, pending: TM }
-  const roleLbl   = { director: 'Director', operador: 'Operador', inversionista: 'Inversionista', pending: 'Pendiente' }
+  const roleColor = { superuser: RED, director: G, operador: BLU, inversionista: GRN, pending: TM }
+  const roleLbl   = { superuser: 'Superuser', director: 'Director', operador: 'Operador', inversionista: 'Inversionista', pending: 'Pendiente' }
+
+  // Audit helpers
+  const actionColor = { login: GRN, logout: TM, create: BLU, edit: G, delete: RED }
+  const actionIcon  = { login: '→', logout: '←', create: '+', edit: '✎', delete: '✕' }
+  const uniqueUsers   = [...new Set(auditLog.map(l => l.user_email))].filter(Boolean)
+  const uniqueModules = [...new Set(auditLog.map(l => l.module))].filter(Boolean)
+  const filteredLog = auditLog.filter(l =>
+    (!auditFilter.action || l.action === auditFilter.action) &&
+    (!auditFilter.module || l.module === auditFilter.module) &&
+    (!auditFilter.user   || l.user_email === auditFilter.user)
+  )
+  const pagedLog = filteredLog.slice(auditPage * AUDIT_PAGE_SIZE, (auditPage + 1) * AUDIT_PAGE_SIZE)
+
+  const tabStyle = active => ({
+    background: 'none', border: 'none', borderBottom: `2px solid ${active ? G : 'transparent'}`,
+    color: active ? G : TM, cursor: 'pointer', fontFamily: "'DM Mono', monospace",
+    fontSize: 10, letterSpacing: '.15em', padding: '10px 20px', transition: 'all .2s'
+  })
+  const selStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '7px 12px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 10, outline: 'none', letterSpacing: '.05em' }
 
   return (
     <div>
-      <SH title="Administración" subtitle={`${users.length} usuarios · Gestión de accesos`} />
+      <SH title="Administración" subtitle={`${users.length} usuarios · ${isSuperuser ? 'Superuser · Auditoría habilitada' : 'Gestión de accesos'}`} />
 
-      {loading ? (
-        <div style={{ padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando usuarios...</div>
-      ) : (
-        <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
-              {['Nombre', 'Email', 'Rol', 'Estado', 'Ingreso', ''].map(h =>
-                <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+      {/* Tabs — solo visible para superuser */}
+      {isSuperuser && (
+        <div style={{ display: 'flex', borderBottom: `1px solid ${BR}`, marginBottom: 20 }}>
+          <button style={tabStyle(tab === 'usuarios')}   onClick={() => setTab('usuarios')}>USUARIOS</button>
+          <button style={tabStyle(tab === 'auditoria')} onClick={() => { setTab('auditoria'); if (!auditLog.length) loadAudit() }}>
+            AUDITORÍA {auditLog.length > 0 && <span style={{ color: TD }}>· {auditLog.length}</span>}
+          </button>
+        </div>
+      )}
+
+      {/* ── USUARIOS TAB ─────────────────────────────────────── */}
+      {tab === 'usuarios' && (
+        <>
+          {loading ? (
+            <div style={{ padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Cargando usuarios...</div>
+          ) : (
+            <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+                  {['Nombre', 'Email', 'Rol', 'Estado', 'Alta', ''].map(h =>
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+                  )}
+                </tr></thead>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = S2}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ padding: '11px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>
+                        {u.name || <span style={{ color: TD, fontStyle: 'italic' }}>Sin nombre</span>}
+                        {u.id === currentUser?.id && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: G, marginLeft: 6, letterSpacing: '.1em' }}>TÚ</span>}
+                      </td>
+                      <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
+                      <td style={{ padding: '11px 16px' }}>
+                        <Badge label={roleLbl[u.role] || u.role} color={roleColor[u.role] || TM} small />
+                      </td>
+                      <td style={{ padding: '11px 16px' }}>
+                        <Badge label={u.active !== false ? 'Activo' : 'Inactivo'} color={u.active !== false ? GRN : RED} small />
+                      </td>
+                      <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString('es-MX') : '—'}
+                      </td>
+                      <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                        {u.id !== currentUser?.id && <>
+                          <button onClick={() => openEdit(u)}
+                            style={{ background: 'none', border: 'none', color: TM, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
+                            EDITAR
+                          </button>
+                          <button onClick={() => toggleActive(u)}
+                            style={{ background: 'none', border: 'none', color: u.active !== false ? G : GRN, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
+                            {u.active !== false ? 'DESACTIVAR' : 'ACTIVAR'}
+                          </button>
+                          <button onClick={() => delUser(u)}
+                            style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
+                            ✕
+                          </button>
+                        </>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── AUDITORÍA TAB — solo superuser ─────────────────── */}
+      {tab === 'auditoria' && isSuperuser && (
+        <div>
+          {/* Stats rápidos */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 18 }}>
+            {[
+              ['Total acciones', auditLog.length, G],
+              ['Logins',  auditLog.filter(l => l.action === 'login').length,  GRN],
+              ['Creados', auditLog.filter(l => l.action === 'create').length, BLU],
+              ['Editados',auditLog.filter(l => l.action === 'edit').length,   G  ],
+              ['Borrados',auditLog.filter(l => l.action === 'delete').length, RED],
+            ].map(([l, v, c]) => (
+              <div key={l} style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, padding: '14px 16px' }}>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.12em', marginBottom: 6 }}>{l.toUpperCase()}</div>
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: c }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filtros */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+            <select value={auditFilter.action} onChange={e => { setAuditFilter(f => ({ ...f, action: e.target.value })); setAuditPage(0) }} style={selStyle}>
+              <option value="">Todas las acciones</option>
+              {['login','logout','create','edit','delete'].map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select value={auditFilter.module} onChange={e => { setAuditFilter(f => ({ ...f, module: e.target.value })); setAuditPage(0) }} style={selStyle}>
+              <option value="">Todos los módulos</option>
+              {uniqueModules.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={auditFilter.user} onChange={e => { setAuditFilter(f => ({ ...f, user: e.target.value })); setAuditPage(0) }} style={selStyle}>
+              <option value="">Todos los usuarios</option>
+              {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <button onClick={loadAudit} style={{ background: S3, border: `1px solid ${BR}`, color: TM, padding: '7px 14px', borderRadius: 4, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.1em' }}>
+              ↺ ACTUALIZAR
+            </button>
+            <div style={{ marginLeft: 'auto', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>
+              {filteredLog.length} registros
+            </div>
+          </div>
+
+          {/* Log table */}
+          {auditLoading ? (
+            <div style={{ padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, animation: 'pulse 1.2s infinite', letterSpacing: '.2em' }}>
+              CARGANDO LOG...
+            </div>
+          ) : (
+            <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>
+                  {['Fecha / Hora', 'Usuario', 'Acción', 'Módulo', 'Descripción'].map(h =>
+                    <th key={h} style={{ textAlign: 'left', padding: '9px 14px', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+                  )}
+                </tr></thead>
+                <tbody>
+                  {pagedLog.length === 0 ? (
+                    <tr><td colSpan={5} style={{ padding: 32, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>
+                      Sin registros{auditFilter.action || auditFilter.module || auditFilter.user ? ' con estos filtros' : ' — las acciones aparecerán aquí'}
+                    </td></tr>
+                  ) : pagedLog.map(l => (
+                    <tr key={l.id} style={{ borderBottom: `1px solid ${BR}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = S2}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ padding: '9px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, whiteSpace: 'nowrap' }}>
+                        {new Date(l.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td style={{ padding: '9px 14px' }}>
+                        <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{l.user_name || l.user_email?.split('@')[0]}</div>
+                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>{l.user_email}</div>
+                      </td>
+                      <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: actionColor[l.action] || TM, fontFamily: "'DM Mono', monospace", fontSize: 11, marginRight: 5 }}>
+                          {actionIcon[l.action]}
+                        </span>
+                        <Badge label={l.action} color={actionColor[l.action] || TM} small />
+                      </td>
+                      <td style={{ padding: '9px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
+                        {l.module}{l.entity ? <span style={{ color: TD }}> · {l.entity}</span> : ''}
+                      </td>
+                      <td style={{ padding: '9px 14px', fontFamily: "'Jost', sans-serif", fontSize: 12, color: TM, maxWidth: 320 }}>
+                        {l.description || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Paginación */}
+              {filteredLog.length > AUDIT_PAGE_SIZE && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '12px 16px', borderTop: `1px solid ${BR}` }}>
+                  <button onClick={() => setAuditPage(p => Math.max(0, p - 1))} disabled={auditPage === 0}
+                    style={{ background: 'none', border: `1px solid ${BR}`, color: auditPage === 0 ? TD : TM, padding: '5px 12px', borderRadius: 3, cursor: auditPage === 0 ? 'default' : 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9 }}>
+                    ← ANTERIOR
+                  </button>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>
+                    {auditPage + 1} / {Math.ceil(filteredLog.length / AUDIT_PAGE_SIZE)}
+                  </span>
+                  <button onClick={() => setAuditPage(p => p + 1)} disabled={(auditPage + 1) * AUDIT_PAGE_SIZE >= filteredLog.length}
+                    style={{ background: 'none', border: `1px solid ${BR}`, color: (auditPage + 1) * AUDIT_PAGE_SIZE >= filteredLog.length ? TD : TM, padding: '5px 12px', borderRadius: 3, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9 }}>
+                    SIGUIENTE →
+                  </button>
+                </div>
               )}
-            </tr></thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id} style={{ borderBottom: `1px solid ${BR}` }}
-                  onMouseEnter={e => e.currentTarget.style.background = S2}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ padding: '11px 16px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>
-                    {u.name || <span style={{ color: TD, fontStyle: 'italic' }}>Sin nombre</span>}
-                    {u.id === currentUser?.id && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: G, marginLeft: 6, letterSpacing: '.1em' }}>TÚ</span>}
-                  </td>
-                  <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{u.email}</td>
-                  <td style={{ padding: '11px 16px' }}>
-                    <Badge label={roleLbl[u.role] || u.role} color={roleColor[u.role] || TM} small />
-                  </td>
-                  <td style={{ padding: '11px 16px' }}>
-                    <Badge label={u.active !== false ? 'Activo' : 'Inactivo'} color={u.active !== false ? GRN : RED} small />
-                  </td>
-                  <td style={{ padding: '11px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>
-                    {u.created_at ? new Date(u.created_at).toLocaleDateString('es-MX') : '—'}
-                  </td>
-                  <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
-                    {u.id !== currentUser?.id && <>
-                      <button onClick={() => openEdit(u)}
-                        style={{ background: 'none', border: 'none', color: TM, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
-                        EDITAR
-                      </button>
-                      <button onClick={() => toggleActive(u)}
-                        style={{ background: 'none', border: 'none', color: u.active !== false ? G : GRN, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
-                        {u.active !== false ? 'DESACTIVAR' : 'ACTIVAR'}
-                      </button>
-                      <button onClick={() => delUser(u)}
-                        style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.06em', padding: '2px 8px' }}>
-                        ✕
-                      </button>
-                    </>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -3059,6 +3957,7 @@ function AdminModule({ currentUser }) {
           <FR>
             <Field label="Rol">
               <select value={uf.role} onChange={e => setUf(f => ({ ...f, role: e.target.value }))} style={inputStyle}>
+                {isSuperuser && <option value="superuser">Superuser</option>}
                 <option value="director">Director</option>
                 <option value="operador">Operador</option>
                 <option value="inversionista">Inversionista</option>
@@ -3089,6 +3988,11 @@ function AdminModule({ currentUser }) {
 //  ROOT APP
 // ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
+  // ── Public gallery route — no auth required ────────────────────────────────
+  const urlParams = new URLSearchParams(window.location.search)
+  const galleryPiezaId = urlParams.get('gallery')
+  if (galleryPiezaId) return <PublicGallery piezaId={galleryPiezaId} />
+
   const [authUser, setAuthUser]       = useState(null)
   const [profile, setProfile]         = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -3113,6 +4017,8 @@ export default function App() {
         { data: socios },
         { data: movimientos },
         { data: tiposCosto },
+        { data: piezaFotos },
+        { data: transaccionDocs },
       ] = await Promise.all([
         sb.from('marcas').select('*').order('name'),
         sb.from('modelos').select('*').order('name'),
@@ -3126,6 +4032,8 @@ export default function App() {
         sb.from('socios').select('*').order('participacion', { ascending: false }),
         sb.from('movimientos_socios').select('*').order('fecha'),
         sb.from('tipos_costo').select('*').order('nombre'),
+        sb.from('pieza_fotos').select('*').order('created_at'),
+        sb.from('transaccion_docs').select('*').order('created_at'),
       ])
 
       // Map DB column names to app field names
@@ -3173,10 +4081,11 @@ export default function App() {
         sales:      (ventas     || []).map(v => mapVenta(v, pagos || [])),
         socios:     (socios     || []).map(s => mapSocio(s, movimientos || [])),
         tiposCosto: (tiposCosto || []).map(t => ({ id: t.id, nombre: t.nombre, icono: t.icono })),
-        investors: [], clients_raw: clientes || [],
+        fotos:      (piezaFotos || []).map(f => ({ id:f.id, piezaId:f.pieza_id, posicion:f.posicion, url:f.url, storagePath:f.storage_path, createdAt:f.created_at })),
+        docs:       (transaccionDocs || []).map(d => ({ id:d.id, entidadTipo:d.entidad_tipo, entidadId:d.entidad_id, tipo:d.tipo, nombreArchivo:d.nombre_archivo, url:d.url, storagePath:d.storage_path, verificado:d.verificado, fechaVerificacion:d.fecha_verificacion, verificadoPor:d.verificado_por, createdAt:d.created_at })),
       })
     } catch(e) {
-      console.error('Error loading data:', e)
+      toast('Error al cargar datos: ' + e.message, 'error')
     }
     setDbLoading(false)
   }
@@ -3188,7 +4097,10 @@ export default function App() {
         const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
-        if (p && p.role !== 'pending') await loadData()
+        if (p && p.role !== 'pending') {
+          _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
+          await loadData()
+        }
       }
       setAuthLoading(false)
     })
@@ -3199,15 +4111,26 @@ export default function App() {
         const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
-        if (p && p.role !== 'pending') await loadData()
+        if (p && p.role !== 'pending') {
+          _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
+          logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
+          await loadData()
+        }
       } else if (event === 'SIGNED_OUT') {
+        logAction('logout', 'sistema', 'sesión', 'Cerró sesión')
+        _auditUser = null
         setAuthUser(null); setProfile(null); setAppState({ ...DEMO })
       }
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  const logout = async () => { await sb.auth.signOut(); setAuthUser(null); setProfile(null); setPage('dashboard'); setAppState({ ...DEMO }) }
+  const logout = async () => {
+    logAction('logout', 'sistema', 'sesión', 'Cerró sesión manualmente')
+    await sb.auth.signOut()
+    _auditUser = null
+    setAuthUser(null); setProfile(null); setPage('dashboard'); setAppState({ ...DEMO })
+  }
 
   // Auto-select first valid page (must be before any conditional returns)
   useEffect(() => {
@@ -3269,7 +4192,8 @@ export default function App() {
       case 'contactos':      return <ContactosModule state={appState} setState={setAppState} />
       case 'catalogos':      return <CatalogosModule {...s} />
       case 'reportes':       return <ReportesModule state={appState} />
-      case 'admin':          return <AdminModule currentUser={authUser} />
+      case 'mi_cuenta':      return <MiCuentaModule state={appState} authUser={authUser} />
+      case 'admin':          return <AdminModule currentUser={authUser} currentRole={profile?.role} />
       default:               return null
     }
   }
@@ -3312,7 +4236,7 @@ export default function App() {
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, letterSpacing: '.12em', fontWeight: 600, lineHeight: 1, marginTop: 1 }}>Wrist Room</div>
               </div>
             </div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v6.0</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v7.0</div>
           </div>
           <nav style={{ padding: '8px 0', flex: 1, overflowY: 'auto' }}>
             {allowedNav.map(item => {
