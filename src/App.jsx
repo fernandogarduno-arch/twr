@@ -563,21 +563,21 @@ function Badge({ label, color, small }) {
 // ── UI PRIMITIVES ────────────────────────────────────────────────────────────
 
 // Modal overlay
-function Modal({ title, onClose, width = 520, children }) {
+function Modal({ title, onClose, width = 520, children, blocking = false }) {
   useEffect(() => {
-    const handler = e => { if (e.key === 'Escape') onClose() }
+    const handler = e => { if (e.key === 'Escape' && !blocking) onClose() }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, blocking])
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(4,18,36,.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-         onClick={e => e.target === e.currentTarget && onClose()}>
+         onClick={e => e.target === e.currentTarget && !blocking && onClose()}>
       <div style={{ background:S2, border:`1px solid ${BR}`, borderRadius:8, width:'100%', maxWidth:width,
                     maxHeight:'90vh', overflowY:'auto', animation:'fi .2s ease' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderBottom:`1px solid ${BR}` }}>
           <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color: TX, letterSpacing:'.05em' }}>{title}</div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color: TD, fontSize:20, cursor:'pointer', lineHeight:1, transition:'color .2s' }}
-            onMouseEnter={e=>e.currentTarget.style.color=TX} onMouseLeave={e=>e.currentTarget.style.color=TD}>×</button>
+          <button onClick={blocking ? undefined : onClose} style={{ background:'none', border:'none', color: blocking ? BR : TD, fontSize:20, cursor: blocking ? 'not-allowed' : 'pointer', lineHeight:1, transition:'color .2s' }}
+            onMouseEnter={e=>{ if(!blocking) e.currentTarget.style.color=TX }} onMouseLeave={e=>{ if(!blocking) e.currentTarget.style.color=TD }}>×</button>
         </div>
         <div style={{ padding:24 }}>{children}</div>
       </div>
@@ -1754,13 +1754,18 @@ function DashboardModule({ state }) {
 // ══════════════════════════════════════════════════════════════════════════════
 //  AI VERIFICADOR — Claude-powered price & reference validation
 // ══════════════════════════════════════════════════════════════════════════════
-function AIVerificador({ watch, brand, model, ref_, fotos }) {
-  const [result, setResult]     = useState(null)   // verification result object
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState(null)
-  const [imgResults, setImgResults] = useState([]) // external photos
+function AIVerificador({ watch, brand, model, ref_, fotos, onLoadingChange, onAddToGallery }) {
+  const [result, setResult]         = useState(null)
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState(null)
+  const [imgResults, setImgResults] = useState([])
   const [loadingImgs, setLoadingImgs] = useState(false)
-  const [tab, setTab]           = useState('verificar') // 'verificar' | 'fotos'
+  const [tab, setTab]               = useState('verificar')
+  const [checks, setChecks]         = useState({})
+  const [capturando, setCapturando] = useState({})
+  const [captureToast, setCaptureToast] = useState(null)
+
+  useEffect(() => { onLoadingChange?.(loading || loadingImgs) }, [loading, loadingImgs])
 
   const nombreReloj = `${brand?.name || ''} ${model?.name || ''} ${ref_?.ref || ''}`.trim()
 
@@ -1851,25 +1856,54 @@ Busca en internet el precio de mercado actual de este reloj y responde con este 
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
           role: 'user',
-          content: `Busca en Chrono24, WatchBox, WatchFinder o Google imágenes de: ${nombreReloj} referencia ${ref_?.ref || ''}. Devuelve SOLO un JSON array con hasta 6 URLs de imágenes reales del reloj:
-[
-  { "url": "https://...", "fuente": "Chrono24", "descripcion": "Vista frontal" },
-  ...
-]
-Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
+          content: `Busca imágenes del reloj: ${nombreReloj} ref ${ref_?.ref || ''}.
+Responde ÚNICAMENTE con un JSON array, sin texto antes ni después, sin markdown:
+[{"url":"https://...jpg","fuente":"Chrono24","descripcion":"Vista frontal"},...]
+Incluye hasta 6 URLs directas de imágenes (.jpg .jpeg .png .webp) de sitios como Chrono24, WatchFinder, WatchBox.`
         }]
       })
       const textBlock = data.content?.find(c => c.type === 'text')
       if (textBlock) {
-        const clean = textBlock.text.replace(/```json|```/g, '').trim()
-        const imgs = JSON.parse(clean)
-        setImgResults(Array.isArray(imgs) ? imgs : [])
+        // Robust JSON extraction — find first [ ... ] block in response
+        const text = textBlock.text
+        const start = text.indexOf('[')
+        const end = text.lastIndexOf(']')
+        if (start !== -1 && end !== -1 && end > start) {
+          const jsonStr = text.slice(start, end + 1)
+          const imgs = JSON.parse(jsonStr)
+          setImgResults(Array.isArray(imgs) ? imgs : [])
+        } else {
+          setError('No se encontraron imágenes para esta referencia.')
+        }
       }
     } catch (e) {
       console.error('[TWR AI] Error fotos:', e)
       setError('Error buscando fotos: ' + e.message)
     }
     setLoadingImgs(false)
+  }
+
+  // Proxy URL para evitar CORS al cargar imágenes externas
+  const proxyImg = (url) => `/api/img?url=${encodeURIComponent(url)}`
+
+  // Captura foto externa y la agrega a la galería de la pieza
+  const capturarFoto = async (img, idx) => {
+    if (!onAddToGallery) return
+    setCapturando(p => ({ ...p, [idx]: true }))
+    try {
+      const resp = await fetch(proxyImg(img.url))
+      if (!resp.ok) throw new Error('No se pudo descargar la imagen')
+      const blob = await resp.blob()
+      const ext = img.url.split('.').pop().split('?')[0] || 'jpg'
+      const file = new File([blob], `ref-${ref_?.ref || 'foto'}-${idx}.${ext}`, { type: blob.type || 'image/jpeg' })
+      await onAddToGallery(file, img.descripcion || `Referencia ${nombreReloj}`)
+      setCaptureToast('✓ Foto agregada a la galería')
+      setTimeout(() => setCaptureToast(null), 3000)
+    } catch (e) {
+      setCaptureToast('Error: ' + e.message)
+      setTimeout(() => setCaptureToast(null), 4000)
+    }
+    setCapturando(p => ({ ...p, [idx]: false }))
   }
 
   // ── Render helpers ─────────────────────────────────────────────────────────
@@ -1883,13 +1917,136 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
     no_determinado: '— No determinado'
   })[v] || v
 
+  // Genera y descarga PDF de verificación usando ventana de impresión
+  const descargarPDF = () => {
+    if (!result) return
+    const checked = result.autenticidadFlags?.map((f,i) => ({ item: f, ok: !!checks[i] })) || []
+    const totalChecks = checked.length
+    const doneChecks = checked.filter(c => c.ok).length
+    const evalColors = { bajo_mercado:'#27ae60', en_mercado:'#2980b9', sobre_mercado:'#d4a017', no_determinado:'#666' }
+    const evalEC = evalColors[result.evaluacionPrecio] || '#666'
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Verificación · ${nombreReloj}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@300;400;500&display=swap');
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Jost',sans-serif;background:#fff;color:#1a1a2e;padding:32px;max-width:720px;margin:0 auto}
+    h1{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;margin-bottom:4px}
+    .sub{font-size:11px;color:#888;letter-spacing:.12em;text-transform:uppercase;margin-bottom:24px}
+    .section{border:1px solid #e0e0e0;border-radius:6px;padding:14px 18px;margin-bottom:14px}
+    .section-title{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#999;margin-bottom:8px}
+    .badge{display:inline-block;padding:4px 10px;border-radius:3px;font-size:11px;font-weight:500;margin-bottom:8px}
+    .badge-ok{background:#27ae6020;color:#27ae60;border:1px solid #27ae6040}
+    .badge-err{background:#e74c3c20;color:#e74c3c;border:1px solid #e74c3c40}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;margin-bottom:10px}
+    .grid3 .val{font-size:15px;font-weight:500;color:#b8972a}
+    .grid3 .lbl{font-size:9px;color:#999;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px}
+    .eval-badge{padding:6px 12px;border-radius:3px;font-size:11px;display:inline-block}
+    .check-item{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid #f0f0f0}
+    .check-item:last-child{border-bottom:none}
+    .check-box{width:14px;height:14px;border-radius:2px;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px}
+    .check-ok{background:#27ae60;color:#fff}
+    .check-pending{border:1px solid #ccc}
+    .alert-item{padding:4px 0;font-size:12px;color:#c0392b}
+    .rec-item{padding:4px 0;font-size:12px;color:#2c3e50}
+    .footer{margin-top:24px;padding-top:14px;border-top:1px solid #e0e0e0;font-size:10px;color:#aaa;display:flex;justify-content:space-between}
+    .progress{background:#f0f0f0;border-radius:3px;height:6px;margin-top:6px}
+    .progress-bar{background:#27ae60;border-radius:3px;height:6px}
+    @media print{body{padding:16px}button{display:none}}
+  </style>
+</head>
+<body>
+  <h1>${nombreReloj}</h1>
+  <div class="sub">Reporte de Verificación · The Wrist Room · ${new Date().toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'})}</div>
+
+  <!-- Referencia -->
+  <div class="section">
+    <div class="section-title">Referencia</div>
+    <span class="badge ${result.referenciaValida ? 'badge-ok' : 'badge-err'}">
+      ${result.referenciaValida ? '✓ Referencia válida' : '✗ Referencia cuestionable'}
+    </span>
+    ${result.notasReferencia ? `<p style="font-size:13px;color:#444;margin-top:6px">${result.notasReferencia}</p>` : ''}
+    <p style="font-size:11px;color:#888;margin-top:8px">
+      Serial: ${watch.serial || 'No registrado'} · Condición: ${watch.condition || '—'} · ${ref_?.material || '—'} · ${ref_?.size || '—'}
+    </p>
+  </div>
+
+  <!-- Precio -->
+  <div class="section">
+    <div class="section-title">Precio de Mercado</div>
+    <div class="grid3">
+      <div><div class="lbl">USD</div><div class="val">${result.precioMercadoUSD ? '$' + result.precioMercadoUSD.toLocaleString() : '—'}</div></div>
+      <div><div class="lbl">MXN</div><div class="val">${result.precioMercadoMXN ? '$' + result.precioMercadoMXN.toLocaleString('es-MX') : '—'}</div></div>
+      <div><div class="lbl">Rango USD</div><div class="val" style="font-size:12px">${result.rangoPrecioUSD ? '$'+result.rangoPrecioUSD.min?.toLocaleString()+'–$'+result.rangoPrecioUSD.max?.toLocaleString() : '—'}</div></div>
+    </div>
+    <span class="eval-badge" style="background:${evalEC}20;color:${evalEC};border:1px solid ${evalEC}40">${evalLabel(result.evaluacionPrecio)}</span>
+    ${result.margenSugerido ? `<p style="font-size:12px;color:#666;margin-top:8px">💡 ${result.margenSugerido}</p>` : ''}
+    ${result.fuentesPrecio?.length > 0 ? `<p style="font-size:10px;color:#aaa;margin-top:6px">Fuentes: ${result.fuentesPrecio.join(' · ')}</p>` : ''}
+  </div>
+
+  ${result.alertas?.length > 0 ? `
+  <div class="section" style="border-color:#e74c3c40">
+    <div class="section-title" style="color:#c0392b">⚠ Alertas</div>
+    ${result.alertas.map(a => `<div class="alert-item">• ${a}</div>`).join('')}
+  </div>` : ''}
+
+  <!-- Checklist -->
+  ${checked.length > 0 ? `
+  <div class="section">
+    <div class="section-title">🔍 Checklist de Autenticidad — ${doneChecks}/${totalChecks} verificados</div>
+    <div class="progress"><div class="progress-bar" style="width:${totalChecks > 0 ? Math.round(doneChecks/totalChecks*100) : 0}%"></div></div>
+    <div style="margin-top:10px">
+      ${checked.map(c => `
+      <div class="check-item">
+        <div class="check-box ${c.ok ? 'check-ok' : 'check-pending'}">${c.ok ? '✓' : ''}</div>
+        <span style="font-size:12px;color:${c.ok ? '#2c3e50' : '#888'}">${c.item}</span>
+      </div>`).join('')}
+    </div>
+  </div>` : ''}
+
+  ${result.recomendaciones?.length > 0 ? `
+  <div class="section" style="border-color:#2980b940">
+    <div class="section-title" style="color:#2980b9">💡 Recomendaciones</div>
+    ${result.recomendaciones.map(r => `<div class="rec-item">• ${r}</div>`).join('')}
+  </div>` : ''}
+
+  ${result.serialInfo ? `
+  <div class="section">
+    <div class="section-title">Serial</div>
+    <p style="font-size:12px;color:#555">${result.serialInfo}</p>
+  </div>` : ''}
+
+  <div class="footer">
+    <span>The Wrist Room · Verificación IA</span>
+    <span>${nombreReloj} · ${ref_?.ref || ''}</span>
+  </div>
+  <script>window.onload=()=>{window.print()}</script>
+</body>
+</html>`
+
+    const w = window.open('', '_blank', 'width=780,height=900')
+    w.document.write(html)
+    w.document.close()
+  }
+
   return (
     <div>
+      {/* Toast de captura */}
+      {captureToast && (
+        <div style={{ position:'fixed', bottom:24, right:24, background:S2, border:`1px solid ${BR}`, borderRadius:6, padding:'10px 16px', fontFamily:"'DM Mono',monospace", fontSize:10, color:captureToast.startsWith('Error') ? RED : GRN, zIndex:9999, boxShadow:'0 4px 20px rgba(0,0,0,.4)' }}>
+          {captureToast}
+        </div>
+      )}
+
       {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, background: S3, borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ display:'flex', gap:0, marginBottom:16, background:S3, borderRadius:4, overflow:'hidden' }}>
         {[['verificar','🔍 Verificar precio y ref.'],['fotos','📷 Fotos externas']].map(([id,label]) => (
           <button key={id} onClick={() => setTab(id)}
-            style={{ flex: 1, padding: '8px 12px', background: tab===id ? G : 'transparent', color: tab===id ? BG : TM, border: 'none', fontFamily: "'DM Mono',monospace", fontSize: 9, letterSpacing: '.1em', cursor: 'pointer' }}>
+            style={{ flex:1, padding:'8px 12px', background:tab===id?G:'transparent', color:tab===id?BG:TM, border:'none', fontFamily:"'DM Mono',monospace", fontSize:9, letterSpacing:'.1em', cursor:'pointer' }}>
             {label.toUpperCase()}
           </button>
         ))}
@@ -1898,41 +2055,46 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
       {/* ── VERIFICAR TAB ── */}
       {tab === 'verificar' && (<>
         {/* Resumen pieza */}
-        <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 14 }}>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 15, color: TX }}>{nombreReloj}</div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TM, marginTop: 3 }}>
-            {ref_?.ref || '—'} · {ref_?.material || '—'} · {ref_?.size || '—'} · {watch.condition || '—'}
+        <div style={{ background:S3, borderRadius:4, padding:'10px 14px', marginBottom:14 }}>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:15, color:TX }}>{nombreReloj}</div>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, marginTop:3 }}>
+            {ref_?.ref||'—'} · {ref_?.material||'—'} · {ref_?.size||'—'} · {watch.condition||'—'}
           </div>
         </div>
 
-        <Btn onClick={verificar} disabled={loading} style={{ width: '100%', marginBottom: 14 }}>
+        <Btn onClick={verificar} disabled={loading} style={{ width:'100%', marginBottom:14 }}>
           {loading ? '🔍 Verificando con IA...' : '🤖 Verificar con Claude + Web Search'}
         </Btn>
 
         {loading && (
-          <div style={{ textAlign: 'center', padding: 24 }}>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>CONSULTANDO MERCADO...</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 6 }}>Buscando en Chrono24, WatchCharts, Watchfinder...</div>
+          <div style={{ textAlign:'center', padding:24 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM, letterSpacing:'.1em' }}>CONSULTANDO MERCADO...</div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginTop:6 }}>Buscando en Chrono24, WatchCharts, Watchfinder...</div>
           </div>
         )}
 
         {error && (
-          <div style={{ background: RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>{error}</div>
+          <div style={{ background:RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>{error}</div>
         )}
 
         {result && (<>
-          {/* Referencia */}
-          <div style={{ background: (result.referenciaValida ? GRN : RED)+'11', border:`1px solid ${(result.referenciaValida ? GRN : RED)}33`, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
-            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:4 }}>REFERENCIA</div>
-            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:result.referenciaValida?GRN:RED }}>
-              {result.referenciaValida ? '✓ Referencia válida y confirmada' : '✗ Referencia cuestionable o no encontrada'}
+          {/* 1. REFERENCIA — primero */}
+          <div style={{ background:(result.referenciaValida?GRN:RED)+'11', border:`1px solid ${(result.referenciaValida?GRN:RED)}33`, borderRadius:4, padding:'12px 14px', marginBottom:10 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:5 }}>PASO 1 · REFERENCIA</div>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: result.notasReferencia ? 6 : 0 }}>
+              <div style={{ width:20, height:20, borderRadius:'50%', background:(result.referenciaValida?GRN:RED)+'22', border:`1px solid ${result.referenciaValida?GRN:RED}66`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:result.referenciaValida?GRN:RED, flexShrink:0 }}>
+                {result.referenciaValida ? '✓' : '✗'}
+              </div>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:result.referenciaValida?GRN:RED }}>
+                {result.referenciaValida ? 'Referencia válida y confirmada' : 'Referencia cuestionable o no encontrada'}
+              </span>
             </div>
-            {result.notasReferencia && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX, marginTop:5 }}>{result.notasReferencia}</div>}
+            {result.notasReferencia && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX, marginLeft:28 }}>{result.notasReferencia}</div>}
           </div>
 
-          {/* Precio mercado */}
-          <div style={{ background: S3, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
-            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:8 }}>PRECIO DE MERCADO</div>
+          {/* 2. PRECIO MERCADO */}
+          <div style={{ background:S3, borderRadius:4, padding:'12px 14px', marginBottom:10 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:8 }}>PASO 2 · PRECIO DE MERCADO</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
               {[
                 { label:'USD', value: result.precioMercadoUSD ? `$${result.precioMercadoUSD.toLocaleString()}` : '—' },
@@ -1948,15 +2110,11 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
             <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:evalColor(result.evaluacionPrecio), padding:'6px 10px', background:evalColor(result.evaluacionPrecio)+'11', borderRadius:3 }}>
               {evalLabel(result.evaluacionPrecio)}
             </div>
-            {result.margenSugerido && (
-              <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TM, marginTop:6 }}>💡 {result.margenSugerido}</div>
-            )}
-            {result.fuentesPrecio?.length > 0 && (
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, marginTop:6 }}>Fuentes: {result.fuentesPrecio.join(' · ')}</div>
-            )}
+            {result.margenSugerido && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TM, marginTop:6 }}>💡 {result.margenSugerido}</div>}
+            {result.fuentesPrecio?.length > 0 && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, marginTop:6 }}>Fuentes: {result.fuentesPrecio.join(' · ')}</div>}
           </div>
 
-          {/* Alertas */}
+          {/* 3. ALERTAS */}
           {result.alertas?.length > 0 && (
             <div style={{ background:RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:RED, letterSpacing:'.12em', marginBottom:6 }}>⚠ ALERTAS</div>
@@ -1964,20 +2122,44 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
             </div>
           )}
 
-          {/* Checklist autenticidad */}
-          {result.autenticidadFlags?.length > 0 && (
-            <div style={{ background:S3, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em', marginBottom:6 }}>🔍 VERIFICAR EN FÍSICO</div>
-              {result.autenticidadFlags.map((f,i) => (
-                <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:5 }}>
-                  <input type="checkbox" style={{ marginTop:2, accentColor:G }} />
-                  <span style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX }}>{f}</span>
+          {/* 4. CHECKLIST AUTENTICIDAD */}
+          {result.autenticidadFlags?.length > 0 && (() => {
+            const total = result.autenticidadFlags.length
+            const done  = result.autenticidadFlags.filter((_,i) => checks[i]).length
+            const pct   = Math.round(done/total*100)
+            return (
+              <div style={{ background:S3, borderRadius:4, padding:'12px 14px', marginBottom:10 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.12em' }}>PASO 3 · VERIFICAR EN FÍSICO</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: done===total ? GRN : TM }}>{done}/{total}</div>
                 </div>
-              ))}
-            </div>
-          )}
+                {/* Progress bar */}
+                <div style={{ background:S2, borderRadius:2, height:4, marginBottom:12, overflow:'hidden' }}>
+                  <div style={{ width:`${pct}%`, height:'100%', background: done===total ? GRN : G, borderRadius:2, transition:'width .3s' }} />
+                </div>
+                {result.autenticidadFlags.map((f,i) => (
+                  <div key={i} onClick={() => setChecks(p => ({...p, [i]: !p[i]}))}
+                    style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'7px 0', borderBottom: i < result.autenticidadFlags.length-1 ? `1px solid ${BR}` : 'none', cursor:'pointer' }}>
+                    <div style={{ width:16, height:16, borderRadius:3, background: checks[i] ? GRN : 'transparent', border:`2px solid ${checks[i] ? GRN : BR}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'#fff', flexShrink:0, marginTop:1, transition:'all .15s' }}>
+                      {checks[i] ? '✓' : ''}
+                    </div>
+                    <span style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color: checks[i] ? TM : TX, textDecoration: checks[i] ? 'line-through' : 'none' }}>{f}</span>
+                  </div>
+                ))}
+                {/* Botones terminar / PDF */}
+                <div style={{ display:'flex', gap:8, marginTop:14 }}>
+                  <Btn small onClick={() => { setChecks({}); setResult(null) }} variant="secondary" style={{ flex:1 }}>
+                    ✓ Terminar verificación
+                  </Btn>
+                  <Btn small onClick={descargarPDF} style={{ flex:1 }}>
+                    📄 Descargar PDF
+                  </Btn>
+                </div>
+              </div>
+            )
+          })()}
 
-          {/* Recomendaciones */}
+          {/* 5. RECOMENDACIONES */}
           {result.recomendaciones?.length > 0 && (
             <div style={{ background:BLU+'11', border:`1px solid ${BLU}33`, borderRadius:4, padding:'10px 14px', marginBottom:10 }}>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:BLU, letterSpacing:'.12em', marginBottom:6 }}>💡 RECOMENDACIONES</div>
@@ -1986,19 +2168,20 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
           )}
 
           {result.serialInfo && (
-            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, padding:'6px 10px', background:S3, borderRadius:3 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, padding:'6px 10px', background:S3, borderRadius:3, marginBottom:10 }}>
               Serial: {result.serialInfo}
             </div>
           )}
 
-          <Btn variant="ghost" small onClick={verificar} style={{ width:'100%', marginTop:10 }}>🔄 Re-verificar</Btn>
+          <Btn variant="ghost" small onClick={verificar} style={{ width:'100%' }}>🔄 Re-verificar</Btn>
         </>)}
       </>)}
 
       {/* ── FOTOS EXTERNAS TAB ── */}
       {tab === 'fotos' && (<>
         <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginBottom:12, lineHeight:1.6 }}>
-          Busca imágenes de referencia de <span style={{ color:G }}>{nombreReloj}</span> en sitios especializados para usar como referencia o completar tu galería.
+          Busca imágenes de referencia de <span style={{ color:G }}>{nombreReloj}</span> en sitios especializados.
+          {onAddToGallery && <span style={{ color:TM }}> Pulsa <strong>Capturar</strong> para agregarla a la galería de esta pieza.</span>}
         </div>
         <Btn onClick={buscarFotos} disabled={loadingImgs} style={{ width:'100%', marginBottom:14 }}>
           {loadingImgs ? '🔍 Buscando imágenes...' : '📷 Buscar fotos en internet'}
@@ -2012,24 +2195,36 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
           <div style={{ background:RED+'11', border:`1px solid ${RED}33`, borderRadius:4, padding:'10px 14px', fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>{error}</div>
         )}
 
-        {imgResults.length > 0 && (
-          <>
-            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', marginBottom:10 }}>{imgResults.length} IMÁGENES ENCONTRADAS</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              {imgResults.map((img, i) => (
-                <div key={i} style={{ background:S3, borderRadius:4, overflow:'hidden', border:`1px solid ${BR}` }}>
-                  <img src={img.url} alt={img.descripcion || nombreReloj}
-                    style={{ width:'100%', aspectRatio:'1', objectFit:'cover', display:'block' }}
-                    onError={e => { e.target.style.display='none' }} />
-                  <div style={{ padding:'6px 8px' }}>
-                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM }}>{img.fuente}</div>
-                    {img.descripcion && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:10, color:TD }}>{img.descripcion}</div>}
-                  </div>
+        {imgResults.length > 0 && (<>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', marginBottom:10 }}>{imgResults.length} IMÁGENES ENCONTRADAS</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            {imgResults.map((img, idx) => (
+              <div key={idx} style={{ background:S3, borderRadius:4, overflow:'hidden', border:`1px solid ${BR}` }}>
+                {/* Image via proxy to avoid CORS */}
+                <div style={{ width:'100%', aspectRatio:'1', background:S2, position:'relative', overflow:'hidden' }}>
+                  <img
+                    src={proxyImg(img.url)}
+                    alt={img.descripcion || nombreReloj}
+                    style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }}
+                    onError={e => { e.target.style.display='none'; e.target.parentNode.style.background=S1 }}
+                  />
                 </div>
-              ))}
-            </div>
-          </>
-        )}
+                <div style={{ padding:'8px 8px 6px' }}>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM }}>{img.fuente}</div>
+                  {img.descripcion && <div style={{ fontFamily:"'Jost',sans-serif", fontSize:10, color:TD, marginTop:2 }}>{img.descripcion}</div>}
+                  {onAddToGallery && (
+                    <button
+                      onClick={() => capturarFoto(img, idx)}
+                      disabled={!!capturando[idx]}
+                      style={{ marginTop:6, width:'100%', background: capturando[idx] ? S2 : G+'22', border:`1px solid ${G}44`, borderRadius:3, padding:'4px 0', fontFamily:"'DM Mono',monospace", fontSize:8, color: capturando[idx] ? TD : G, letterSpacing:'.1em', cursor: capturando[idx] ? 'not-allowed' : 'pointer' }}>
+                      {capturando[idx] ? 'CAPTURANDO...' : '+ AGREGAR A GALERÍA'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>)}
       </>)}
     </div>
   )
@@ -2048,9 +2243,10 @@ function InventarioModule({ state, setState }) {
   const [editForm, setEditForm]   = useState({})
   const [editSaving, setEditSaving] = useState(false)
   const [showBajaPieza, setShowBajaPieza] = useState(false)
-  const [showDecision, setShowDecision] = useState(null) // { sale, watch } — post-liquidado modal
-  const [decisionMap, setDecisionMap]   = useState({}) // socioId → 'reinvertir' | 'retirar'
+  const [showDecision, setShowDecision] = useState(null)
+  const [decisionMap, setDecisionMap]   = useState({})
   const [decisionSaving, setDecisionSaving] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)  // bloquea cierre durante verificación IA
 
   const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceDealer: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
   const [wf, setWf] = useState({ ...blank })
@@ -2505,7 +2701,7 @@ function InventarioModule({ state, setState }) {
 
       {/* DETAIL MODAL */}
       {selWatch && (
-        <Modal title={`${selBrand?.name || ''} ${selModel?.name || ''}`} onClose={() => { setSelWatch(null); setDetailTab('info') }} width={740}>
+        <Modal title={`${selBrand?.name || ''} ${selModel?.name || ''}`} onClose={() => { setSelWatch(null); setDetailTab('info') }} width={740} blocking={aiLoading}>
           {/* Tabs */}
           <div style={{ display:'flex', borderBottom:`1px solid ${BR}`, marginBottom:18, gap:0 }}>
             {[['info','◈ Info'],['fotos',`◧ Fotos (${state.fotos.filter(f=>f.piezaId===selWatch.id).length})`],['docs_compra',`📋 Docs Compra (${state.docs.filter(d=>d.entidadTipo==='pieza'&&d.entidadId===selWatch.id).length})`],['ai_verify','🤖 Verificar']].map(([id,label]) => (
@@ -2777,6 +2973,16 @@ function InventarioModule({ state, setState }) {
               model={selModel}
               ref_={selRef}
               fotos={state.fotos.filter(f => f.piezaId === selWatch.id)}
+              onLoadingChange={setAiLoading}
+              onAddToGallery={async (file, descripcion) => {
+                // Upload the captured external image as a gallery photo
+                const posicion = 'ref-' + Date.now()
+                const { url, storagePath } = await storage.uploadFoto(selWatch.id, posicion, file)
+                const newFoto = { id: null, piezaId: selWatch.id, posicion, url, storagePath, createdAt: new Date().toISOString() }
+                const dbId = await mediaDb.saveFoto(newFoto)
+                setState(s => ({ ...s, fotos: [...s.fotos, { ...newFoto, id: dbId }] }))
+                logAction('create', 'inventario', 'foto', `Capturó foto externa: ${descripcion}`, selWatch.id)
+              }}
             />
           )}
         </Modal>
@@ -2784,7 +2990,7 @@ function InventarioModule({ state, setState }) {
 
       {/* SALE FORM */}
       {showSale && selWatch && (
-        <Modal title="Registrar Venta" onClose={() => setShowSale(false)} width={520}>
+        <Modal title="Registrar Venta" onClose={() => !watchSaving && setShowSale(false)} width={520} blocking={watchSaving}>
           {/* Resumen de precios */}
           <div style={{ background: S3, borderRadius: 4, padding: '12px 14px', marginBottom: 16 }}>
             <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, marginBottom: 8 }}>{selBrand?.name} {selModel?.name} · {selRef?.ref}</div>
@@ -2832,7 +3038,7 @@ function InventarioModule({ state, setState }) {
 
       {/* ADD WATCH */}
       {showAdd && (
-        <Modal title="Registrar Nueva Pieza" onClose={() => !watchSaving && setShowAdd(false)}>
+        <Modal title="Registrar Nueva Pieza" onClose={() => !watchSaving && setShowAdd(false)} blocking={watchSaving}>
           <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 16, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
             Selecciona del catálogo: Marca → Modelo → Referencia
           </div>
@@ -3180,7 +3386,7 @@ function InventarioModule({ state, setState }) {
         const split = getSplitDecision(watch)
         const sociosInvolucrados = socios.filter(s => (split[s.id] || 0) > 0)
         return (
-          <Modal title="✓ Venta Liquidada · Decisión de Fondos" onClose={() => !decisionSaving && setShowDecision(null)} width={500}>
+          <Modal title="✓ Venta Liquidada · Decisión de Fondos" onClose={() => !decisionSaving && setShowDecision(null)} width={500} blocking={decisionSaving}>
             <div style={{ background: GRN+'11', border: `1px solid ${GRN}33`, borderRadius: 4, padding: '10px 14px', marginBottom: 16 }}>
               <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: GRN, letterSpacing: '.1em' }}>TOTAL RECUPERADO</div>
               <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, color: GRN }}>{fmt(sale?.agreedPrice || 0)}</div>
@@ -3582,7 +3788,7 @@ function ReportesModule({ state, setState }) {
 
       {/* Modal: retiro / reinversión manual */}
       {showRetiro && (
-        <Modal title={`Movimiento · ${showRetiro.name}`} onClose={() => !retiroSaving && setShowRetiro(null)} width={420}>
+        <Modal title={`Movimiento · ${showRetiro.name}`} onClose={() => !retiroSaving && setShowRetiro(null)} width={420} blocking={retiroSaving}>
           <FR cols={1}>
             <Field label="Tipo de movimiento">
               <select value={retiroForm.tipo} onChange={e => setRetiroForm(f => ({ ...f, tipo: e.target.value }))} style={inputStyle}>
@@ -3950,7 +4156,7 @@ function CatalogosModule({ state, setState }) {
 
       {/* ── MODAL MARCA ────────────────────────────────────────────────────── */}
       {showBrandForm && (
-        <Modal title={editBrand ? `Editar · ${editBrand.name}` : 'Nueva Marca'} onClose={() => setShowBrandForm(false)}>
+        <Modal title={editBrand ? `Editar · ${editBrand.name}` : 'Nueva Marca'} onClose={() => !saving && setShowBrandForm(false)} blocking={saving}>
           <FR>
             <Field label="Nombre" required><input value={bf.name} onChange={e => setBf(f => ({ ...f, name: e.target.value }))} placeholder="Rolex, Patek Philippe..." style={inputStyle} /></Field>
             <Field label="País"><input value={bf.country} onChange={e => setBf(f => ({ ...f, country: e.target.value }))} placeholder="Suiza" style={inputStyle} /></Field>
@@ -3968,7 +4174,7 @@ function CatalogosModule({ state, setState }) {
 
       {/* ── MODAL MODELO ───────────────────────────────────────────────────── */}
       {showModelForm && (
-        <Modal title={editModel ? `Editar · ${editModel.name}` : 'Nuevo Modelo'} onClose={() => setShowModelForm(false)}>
+        <Modal title={editModel ? `Editar · ${editModel.name}` : 'Nuevo Modelo'} onClose={() => !saving && setShowModelForm(false)} blocking={saving}>
           <FR>
             <Field label="Marca" required>
               <select value={mf.brandId} onChange={e => setMf(f => ({ ...f, brandId: e.target.value }))} style={inputStyle}>
@@ -3990,7 +4196,7 @@ function CatalogosModule({ state, setState }) {
 
       {/* ── MODAL REFERENCIA ───────────────────────────────────────────────── */}
       {showRefForm && (
-        <Modal title={editRef ? `Editar · ${editRef.ref}` : 'Nueva Referencia'} onClose={() => setShowRefForm(false)} width={560}>
+        <Modal title={editRef ? `Editar · ${editRef.ref}` : 'Nueva Referencia'} onClose={() => !saving && setShowRefForm(false)} width={560} blocking={saving}>
           <FR>
             <Field label="Modelo *">
               <select value={rf.modelId} onChange={e => setRf(f => ({ ...f, modelId: e.target.value }))} style={inputStyle}>
@@ -4077,6 +4283,8 @@ function InversionistasModule({ state, setState }) {
   const [showEditSocios, setShowEditSocios] = useState(false)
   const [mv, setMv]             = useState({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
   const [editSocios, setEditSocios] = useState(null)
+  const [mvSaving, setMvSaving] = useState(false)
+  const [sociosSaving, setSociosSaving] = useState(false)
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
 
   const socios = sociosState || []
@@ -4109,7 +4317,8 @@ function InversionistasModule({ state, setState }) {
   const getMovimientos = (socioId) => (socios.find(s => s.id === socioId)?.movimientos || [])
 
   const saveMov = async () => {
-    if (!sel) return
+    if (!sel || mvSaving) return
+    setMvSaving(true)
     const monto = mv.tipo === 'Distribución' || mv.tipo === 'Retiro' ? -Math.abs(+mv.monto) : +mv.monto
     const nuevoMov = { id: 'M' + uid(), socioId: sel.id, ...mv, monto }
     setState(s => ({
@@ -4122,16 +4331,17 @@ function InversionistasModule({ state, setState }) {
       setShowMov(false)
       setMv({ fecha: tod(), tipo: 'Aportación', monto: '', concepto: '' })
     } catch (e) {
-      // Rollback
       setState(s => ({
         ...s,
         socios: (s.socios || []).map(i => i.id !== sel.id ? i : { ...i, movimientos: (i.movimientos || []).filter(m => m.id !== nuevoMov.id) })
       }))
       toast('Error al registrar movimiento: ' + e.message, 'error')
     }
+    setMvSaving(false)
   }
 
   const saveEditSocios = async () => {
+    setSociosSaving(true)
     const prev = state.socios
     setState(s => ({ ...s, socios: editSocios }))
     try {
@@ -4142,6 +4352,7 @@ function InversionistasModule({ state, setState }) {
       setState(s => ({ ...s, socios: prev }))
       toast('Error al guardar socios: ' + e.message, 'error')
     }
+    setSociosSaving(false)
   }
 
   const selConMovimientos = sel ? socios.find(s => s.id === sel.id) : null
@@ -4240,7 +4451,7 @@ function InversionistasModule({ state, setState }) {
 
       {/* Modal configurar socios */}
       {showEditSocios && editSocios && (
-        <Modal title="Configurar Socios" onClose={() => setShowEditSocios(false)} width={500}>
+        <Modal title="Configurar Socios" onClose={() => !sociosSaving && setShowEditSocios(false)} width={500} blocking={sociosSaving}>
           <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 16 }}>
             El split global aplica a todas las piezas marcadas como "En Sociedad"
           </div>
@@ -4266,7 +4477,7 @@ function InversionistasModule({ state, setState }) {
 
       {/* Modal detalle socio */}
       {sel && selConMovimientos && (
-        <Modal title={`${selConMovimientos.name}`} onClose={() => { setSel(null); setShowMov(false) }} width={580}>
+        <Modal title={`${selConMovimientos.name}`} onClose={() => { if(!mvSaving) { setSel(null); setShowMov(false) } }} width={580} blocking={mvSaving}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>
               Corresponde: <span style={{ color: G }}>{fmt(utilidadPorSocio[sel.id] || 0)}</span>
@@ -4323,6 +4534,7 @@ function ContactosModule({ state, setState }) {
   const [editProveedor, setEditProveedor]   = useState(null)
   const [cf, setCf] = useState({ name: '', phone: '', email: '', city: '', tier: 'Prospecto', notes: '' })
   const [pf, setPf] = useState({ name: '', type: 'Particular', phone: '', email: '', city: '', notes: '', rating: 3 })
+  const [contactoSaving, setContactoSaving] = useState(false)
   const inputStyle = { background: S3, border: `1px solid ${BR}`, color: TX, padding: '10px 14px', borderRadius: 4, fontFamily: "'Jost', sans-serif", fontSize: 13, width: '100%', outline: 'none' }
   const Stars = n => '★'.repeat(n) + '☆'.repeat(5 - n)
 
@@ -4332,6 +4544,7 @@ function ContactosModule({ state, setState }) {
   const openEditProveedor = (p) => { setEditProveedor(p); setPf({ name: p.name, type: p.type || 'Particular', phone: p.phone || '', email: p.email || '', city: p.city || '', notes: p.notes || '', rating: p.rating || 3 }); setShowProveedorForm(true) }
 
   const saveCliente = async () => {
+    setContactoSaving(true)
     try {
       if (editCliente) {
         const updated = { ...editCliente, ...cf }
@@ -4348,6 +4561,7 @@ function ContactosModule({ state, setState }) {
       }
       setShowClienteForm(false)
     } catch (e) { toast('Error: ' + e.message, 'error') }
+    setContactoSaving(false)
   }
 
   const [deleteTarget, setDeleteTarget] = useState(null) // { type, item }
@@ -4371,6 +4585,7 @@ function ContactosModule({ state, setState }) {
   }
 
   const saveProveedor = async () => {
+    setContactoSaving(true)
     try {
       if (editProveedor) {
         const updated = { ...editProveedor, ...pf, rating: +pf.rating }
@@ -4387,6 +4602,7 @@ function ContactosModule({ state, setState }) {
       }
       setShowProveedorForm(false)
     } catch (e) { toast('Error: ' + e.message, 'error') }
+    setContactoSaving(false)
   }
 
   const delProveedor = (p) => setDeleteTarget({ type: 'proveedor', item: p })
@@ -4517,7 +4733,7 @@ function ContactosModule({ state, setState }) {
 
       {/* ── FORM CLIENTE ─────────────────────────────────────────────────── */}
       {showClienteForm && (
-        <Modal title={editCliente ? `Editar · ${editCliente.name}` : 'Nuevo Cliente'} onClose={() => setShowClienteForm(false)} width={500}>
+        <Modal title={editCliente ? `Editar · ${editCliente.name}` : 'Nuevo Cliente'} onClose={() => !contactoSaving && setShowClienteForm(false)} width={500} blocking={contactoSaving}>
           <FR>
             <Field label="Nombre completo">
               <input value={cf.name} onChange={e => setCf(f => ({ ...f, name: e.target.value }))} placeholder="García, Roberto" style={inputStyle} />
@@ -4553,7 +4769,7 @@ function ContactosModule({ state, setState }) {
 
       {/* ── FORM PROVEEDOR ───────────────────────────────────────────────── */}
       {showProveedorForm && (
-        <Modal title={editProveedor ? `Editar · ${editProveedor.name}` : 'Nuevo Proveedor'} onClose={() => setShowProveedorForm(false)} width={500}>
+        <Modal title={editProveedor ? `Editar · ${editProveedor.name}` : 'Nuevo Proveedor'} onClose={() => !contactoSaving && setShowProveedorForm(false)} width={500} blocking={contactoSaving}>
           <FR>
             <Field label="Nombre">
               <input value={pf.name} onChange={e => setPf(f => ({ ...f, name: e.target.value }))} placeholder="Nombre o razón social" style={inputStyle} />
