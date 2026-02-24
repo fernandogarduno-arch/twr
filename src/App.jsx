@@ -1196,7 +1196,7 @@ function PublicCatalog() {
                   </div>
 
                   {/* Contact CTA */}
-                  <a href="https://wa.me/529991234567?text=Hola%2C%20me%20interesa%20el%20reloj%20" target="_blank" rel="noopener noreferrer"
+                  <a href="https://wa.me/529811008820?text=Hola%2C%20me%20interesa%20el%20reloj%20" target="_blank" rel="noopener noreferrer"
                     style={{ display:'block', marginTop:12, textAlign:'center', background: item.status === 'Disponible' ? G : S3, color: item.status === 'Disponible' ? BG : TM, padding:'9px 16px', borderRadius:5, fontFamily:"'DM Mono',monospace", fontSize:9, letterSpacing:'.12em', textDecoration:'none', fontWeight:600, border:`1px solid ${item.status === 'Disponible' ? G : BR}` }}>
                     {item.status === 'Disponible' ? 'CONTACTAR · WHATSAPP' : item.status === 'Reservado' ? 'PIEZA RESERVADA' : 'CONSULTAR DISPONIBILIDAD'}
                   </a>
