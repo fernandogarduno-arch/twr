@@ -977,6 +977,7 @@ const STATUS_CONFIG = {
   'Disponible':  { color: '#2ECC71', label: 'Disponible',  dot: '●' },
   'Consignado':  { color: '#4AADE6', label: 'Consignado',  dot: '●' },
   'Reservado':   { color: '#C9A96E', label: 'Reservado',   dot: '●' },
+  'Vendido':     { color: '#4A6E88', label: 'Vendido',     dot: '●' },
 }
 
 function PublicCatalog() {
@@ -989,12 +990,15 @@ function PublicCatalog() {
   const load = async () => {
     setLoading(true)
     try {
-      const { data: piezas } = await sb
-        .from('piezas')
-        .select('*')
-        .eq('stage', 'inventario')
-        .in('status', ['Disponible', 'Consignado', 'Reservado'])
-        .order('entry_date', { ascending: false })
+      // Fetch inventario activo + vendidos (liquidado)
+      const [{ data: piezasActivas }, { data: piezasVendidas }] = await Promise.all([
+        sb.from('piezas').select('*').eq('stage', 'inventario')
+          .in('status', ['Disponible', 'Consignado', 'Reservado'])
+          .order('entry_date', { ascending: false }),
+        sb.from('piezas').select('*').eq('stage', 'liquidado')
+          .order('created_at', { ascending: false }).limit(20),
+      ])
+      const piezas = [...(piezasActivas || []), ...(piezasVendidas || [])]
 
       if (!piezas?.length) { setItems([]); setLoading(false); return }
 
@@ -1019,6 +1023,7 @@ function PublicCatalog() {
         const brand  = model.marcas || {}
         const pfoto  = fotoMap[p.id] || {}
         const thumb  = pfoto.frente || pfoto.lado || pfoto.reverso || pfoto.venta || null
+        const isVendido = p.stage === 'liquidado'
         return {
           id:         p.id,
           brand:      brand.name || '—',
@@ -1028,9 +1033,8 @@ function PublicCatalog() {
           size:       ref.size   || '',
           dial:       ref.dial   || '',
           condition:  p.condition|| '—',
-          status:     p.status   || 'Disponible',
+          status:     isVendido ? 'Vendido' : (p.status || 'Disponible'),
           price:      p.price_asked || 0,
-          serial:     p.serial   || null,
           fullSet:    p.full_set,
           papers:     p.papers,
           box:        p.box,
@@ -1054,7 +1058,7 @@ function PublicCatalog() {
   }, [])
 
   const filtered = filter === 'all' ? items : items.filter(i => i.status === filter)
-  const counts   = { all: items.length, ...Object.fromEntries(['Disponible','Consignado','Reservado'].map(s => [s, items.filter(i => i.status === s).length])) }
+  const counts   = { all: items.length, ...Object.fromEntries(['Disponible','Consignado','Reservado','Vendido'].map(s => [s, items.filter(i => i.status === s).length])) }
 
   return (
     <div style={{ minHeight:'100vh', background:BG, fontFamily:"'Jost',sans-serif" }}>
@@ -1087,7 +1091,7 @@ function PublicCatalog() {
 
       {/* ── FILTER PILLS ───────────────────────────────────── */}
       <div style={{ padding:'16px 32px', display:'flex', gap:8, borderBottom:`1px solid ${BR}`, background:S1, flexWrap:'wrap' }}>
-        {[['all','Todos'], ['Disponible','Disponible'], ['Consignado','Consignado'], ['Reservado','Reservado']].map(([id, label]) => (
+        {[['all','Todos'], ['Disponible','Disponible'], ['Consignado','Consignado'], ['Reservado','Reservado'], ['Vendido','Vendido']].map(([id, label]) => (
           counts[id] > 0 || id === 'all' ? (
             <button key={id} className="pill" onClick={() => setFilter(id)}
               style={{ background: filter===id ? G+'22' : 'transparent', color: filter===id ? G : TM, border:`1px solid ${filter===id ? G+'66' : BR}`, padding:'5px 14px', borderRadius:99, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.1em', display:'flex', alignItems:'center', gap:5 }}>
@@ -1118,7 +1122,7 @@ function PublicCatalog() {
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:18 }}>
             {filtered.map((item, i) => (
               <div key={item.id} className="card"
-                style={{ background:S1, border:`1px solid ${BR}`, borderRadius:10, overflow:'hidden', animation:`fi .3s ease ${i * 0.04}s both` }}>
+                style={{ background:S1, border:`1px solid ${item.status === 'Vendido' ? BR : BR}`, borderRadius:10, overflow:'hidden', animation:`fi .3s ease ${i * 0.04}s both`, opacity: item.status === 'Vendido' ? 0.65 : 1 }}>
 
                 {/* Foto */}
                 <div style={{ aspectRatio:'4/3', background:S2, overflow:'hidden', position:'relative', cursor: item.thumb ? 'zoom-in' : 'default' }}
@@ -1179,7 +1183,9 @@ function PublicCatalog() {
                   <div style={{ borderTop:`1px solid ${BR}`, paddingTop:12, display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
                     <div>
                       <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.15em', marginBottom:3 }}>PRECIO</div>
-                      {item.price > 0 ? (
+                      {item.status === 'Vendido' ? (
+                        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:20, color:TD }}>Vendido</div>
+                      ) : item.price > 0 ? (
                         <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:G, fontWeight:600 }}>
                           {new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',minimumFractionDigits:0}).format(item.price)}
                         </div>
@@ -1187,19 +1193,15 @@ function PublicCatalog() {
                         <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color:TM }}>Consultar precio</div>
                       )}
                     </div>
-                    {item.serial && (
-                      <div style={{ textAlign:'right' }}>
-                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em' }}>S/N</div>
-                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM }}>{item.serial}</div>
-                      </div>
-                    )}
                   </div>
 
                   {/* Contact CTA */}
-                  <a href="https://wa.me/529811008820?text=Hola%2C%20me%20interesa%20el%20reloj%20" target="_blank" rel="noopener noreferrer"
+                  {item.status !== 'Vendido' && (
+                  <a href="https://wa.me/529991234567?text=Hola%2C%20me%20interesa%20el%20reloj%20" target="_blank" rel="noopener noreferrer"
                     style={{ display:'block', marginTop:12, textAlign:'center', background: item.status === 'Disponible' ? G : S3, color: item.status === 'Disponible' ? BG : TM, padding:'9px 16px', borderRadius:5, fontFamily:"'DM Mono',monospace", fontSize:9, letterSpacing:'.12em', textDecoration:'none', fontWeight:600, border:`1px solid ${item.status === 'Disponible' ? G : BR}` }}>
                     {item.status === 'Disponible' ? 'CONTACTAR · WHATSAPP' : item.status === 'Reservado' ? 'PIEZA RESERVADA' : 'CONSULTAR DISPONIBILIDAD'}
                   </a>
+                  )}
                 </div>
               </div>
             ))}
