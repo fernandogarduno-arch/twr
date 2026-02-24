@@ -1735,7 +1735,10 @@ function InventarioModule({ state, setState }) {
     // Optimistic update
     setState(s => ({ ...s, watches: [...s.watches, watch] }))
     try {
-      await db.saveWatch(watch)
+      // Timeout protection — if Supabase hangs >15s, fail gracefully
+      const savePromise = db.saveWatch(watch)
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Tiempo de espera agotado — verifica tu conexión')), 15000))
+      await Promise.race([savePromise, timeout])
       logAction('create', 'inventario', 'pieza', `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)}`, watch.id)
       toast('Pieza registrada en inventario')
       setShowAdd(false)
@@ -1744,8 +1747,9 @@ function InventarioModule({ state, setState }) {
       // Rollback optimistic update
       setState(s => ({ ...s, watches: s.watches.filter(w => w.id !== id) }))
       toast('Error al registrar pieza: ' + e.message, 'error')
+    } finally {
+      setWatchSaving(false)
     }
-    setWatchSaving(false)
   }
 
   const saveAdditionalCost = async () => {
