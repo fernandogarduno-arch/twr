@@ -969,6 +969,255 @@ function PublicGallery({ piezaId }) {
   )
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  PUBLIC CATALOG — live inventory page, no login required (v8)
+//  Acceso: ?catalogo=1
+// ══════════════════════════════════════════════════════════════════════════════
+const STATUS_CONFIG = {
+  'Disponible':  { color: '#2ECC71', label: 'Disponible',  dot: '●' },
+  'Consignado':  { color: '#4AADE6', label: 'Consignado',  dot: '●' },
+  'Reservado':   { color: '#C9A96E', label: 'Reservado',   dot: '●' },
+}
+
+function PublicCatalog() {
+  const [items, setItems]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const [viewer, setViewer]   = useState(null)  // { url, nombre }
+  const [filter, setFilter]   = useState('all') // 'all' | status
+  const [lastUpdate, setLastUpdate] = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const { data: piezas } = await sb
+        .from('piezas')
+        .select('*')
+        .eq('stage', 'inventario')
+        .in('status', ['Disponible', 'Consignado', 'Reservado'])
+        .order('entry_date', { ascending: false })
+
+      if (!piezas?.length) { setItems([]); setLoading(false); return }
+
+      const refIds = [...new Set(piezas.map(p => p.ref_id).filter(Boolean))]
+      const piezaIds = piezas.map(p => p.id)
+
+      const [{ data: refs }, { data: fotos }] = await Promise.all([
+        sb.from('referencias').select('id, ref, material, size, dial, modelos(id, name, marcas(id, name))').in('id', refIds),
+        sb.from('pieza_fotos').select('pieza_id, posicion, url').in('pieza_id', piezaIds),
+      ])
+
+      const refMap  = Object.fromEntries((refs || []).map(r => [r.id, r]))
+      const fotoMap = {}
+      ;(fotos || []).forEach(f => {
+        if (!fotoMap[f.pieza_id]) fotoMap[f.pieza_id] = {}
+        fotoMap[f.pieza_id][f.posicion] = f.url
+      })
+
+      setItems(piezas.map(p => {
+        const ref    = refMap[p.ref_id] || {}
+        const model  = ref.modelos || {}
+        const brand  = model.marcas || {}
+        const pfoto  = fotoMap[p.id] || {}
+        const thumb  = pfoto.frente || pfoto.lado || pfoto.reverso || pfoto.venta || null
+        return {
+          id:         p.id,
+          brand:      brand.name || '—',
+          model:      model.name || '—',
+          ref:        ref.ref    || '—',
+          material:   ref.material || '',
+          size:       ref.size   || '',
+          dial:       ref.dial   || '',
+          condition:  p.condition|| '—',
+          status:     p.status   || 'Disponible',
+          price:      p.price_asked || 0,
+          serial:     p.serial   || null,
+          fullSet:    p.full_set,
+          papers:     p.papers,
+          box:        p.box,
+          thumb,
+          allFotos:   pfoto,
+        }
+      }))
+      setLastUpdate(new Date())
+    } catch(e) {
+      console.error(e)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  // Auto-refresh every 5 min
+  useEffect(() => {
+    const t = setInterval(load, 5 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const filtered = filter === 'all' ? items : items.filter(i => i.status === filter)
+  const counts   = { all: items.length, ...Object.fromEntries(['Disponible','Consignado','Reservado'].map(s => [s, items.filter(i => i.status === s).length])) }
+
+  return (
+    <div style={{ minHeight:'100vh', background:BG, fontFamily:"'Jost',sans-serif" }}>
+      <style>{`
+        @keyframes fi  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes pulse{ 0%,100%{opacity:.3} 50%{opacity:1} }
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=DM+Mono&family=Jost:wght@300;400;500&display=swap');
+        * { box-sizing: border-box; }
+        body { margin:0; }
+        .card:hover { border-color: #C9A96E88 !important; transform: translateY(-2px); }
+        .card { transition: border-color .2s, transform .2s; }
+        .pill:hover { background: #C9A96E22 !important; color: #C9A96E !important; }
+        .pill { transition: all .15s; }
+      `}</style>
+
+      {/* ── HEADER ─────────────────────────────────────────── */}
+      <div style={{ borderBottom:`1px solid ${BR}`, padding:'24px 32px', display:'flex', justifyContent:'space-between', alignItems:'center', background:S1, position:'sticky', top:0, zIndex:100, backdropFilter:'blur(8px)' }}>
+        <div>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:11, color:TM, letterSpacing:'.4em', marginBottom:4 }}>THE WRIST ROOM</div>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:TX }}>Inventario Disponible</div>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:22, color:G, fontWeight:600 }}>{items.length}</div>
+          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, letterSpacing:'.15em' }}>PIEZAS · MÉRIDA MX</div>
+          {lastUpdate && <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, marginTop:2 }}>
+            actualizado {lastUpdate.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' })}
+          </div>}
+        </div>
+      </div>
+
+      {/* ── FILTER PILLS ───────────────────────────────────── */}
+      <div style={{ padding:'16px 32px', display:'flex', gap:8, borderBottom:`1px solid ${BR}`, background:S1, flexWrap:'wrap' }}>
+        {[['all','Todos'], ['Disponible','Disponible'], ['Consignado','Consignado'], ['Reservado','Reservado']].map(([id, label]) => (
+          counts[id] > 0 || id === 'all' ? (
+            <button key={id} className="pill" onClick={() => setFilter(id)}
+              style={{ background: filter===id ? G+'22' : 'transparent', color: filter===id ? G : TM, border:`1px solid ${filter===id ? G+'66' : BR}`, padding:'5px 14px', borderRadius:99, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.1em', display:'flex', alignItems:'center', gap:5 }}>
+              {id !== 'all' && <span style={{ color: STATUS_CONFIG[id]?.color, fontSize:8 }}>●</span>}
+              {label.toUpperCase()}
+              <span style={{ background: filter===id ? G+'33' : S3, color: filter===id ? G : TD, borderRadius:99, padding:'1px 6px', fontSize:8 }}>{counts[id]}</span>
+            </button>
+          ) : null
+        ))}
+        <button onClick={load} style={{ marginLeft:'auto', background:'none', border:`1px solid ${BR}`, color:TD, padding:'5px 12px', borderRadius:99, fontFamily:"'DM Mono',monospace", fontSize:8, cursor:'pointer', letterSpacing:'.1em' }}>
+          ↺ ACTUALIZAR
+        </button>
+      </div>
+
+      {/* ── CONTENT ────────────────────────────────────────── */}
+      <div style={{ maxWidth:1200, margin:'0 auto', padding:'28px 24px' }}>
+        {loading ? (
+          <div style={{ textAlign:'center', padding:80 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:TM, animation:'pulse 1.2s infinite', letterSpacing:'.2em' }}>CARGANDO INVENTARIO...</div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ textAlign:'center', padding:80 }}>
+            <div style={{ fontSize:40, marginBottom:16 }}>◎</div>
+            <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:20, color:TM }}>Sin piezas disponibles en este momento</div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TD, marginTop:8, letterSpacing:'.15em' }}>CONSULTA PRÓXIMAMENTE</div>
+          </div>
+        ) : (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:18 }}>
+            {filtered.map((item, i) => (
+              <div key={item.id} className="card"
+                style={{ background:S1, border:`1px solid ${BR}`, borderRadius:10, overflow:'hidden', animation:`fi .3s ease ${i * 0.04}s both` }}>
+
+                {/* Foto */}
+                <div style={{ aspectRatio:'4/3', background:S2, overflow:'hidden', position:'relative', cursor: item.thumb ? 'zoom-in' : 'default' }}
+                  onClick={() => item.thumb && setViewer({ url:item.thumb, nombre:`${item.brand} ${item.model}` })}>
+                  {item.thumb ? (
+                    <img src={item.thumb} alt={`${item.brand} ${item.model}`}
+                      style={{ width:'100%', height:'100%', objectFit:'cover', transition:'transform .4s' }}
+                      onMouseEnter={e => e.target.style.transform='scale(1.06)'}
+                      onMouseLeave={e => e.target.style.transform='scale(1)'} />
+                  ) : (
+                    <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <div style={{ fontSize:36, opacity:.2 }}>◷</div>
+                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, letterSpacing:'.12em' }}>SIN FOTO</div>
+                    </div>
+                  )}
+                  {/* Status badge */}
+                  <div style={{ position:'absolute', top:10, left:10, background:'rgba(7,24,41,.85)', backdropFilter:'blur(4px)', border:`1px solid ${STATUS_CONFIG[item.status]?.color}44`, borderRadius:99, padding:'3px 10px', display:'flex', alignItems:'center', gap:5 }}>
+                    <span style={{ color:STATUS_CONFIG[item.status]?.color, fontSize:7 }}>●</span>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:STATUS_CONFIG[item.status]?.color, letterSpacing:'.1em' }}>{item.status.toUpperCase()}</span>
+                  </div>
+                  {/* Photo count */}
+                  {Object.keys(item.allFotos).length > 1 && (
+                    <div style={{ position:'absolute', bottom:10, right:10, background:'rgba(7,24,41,.8)', borderRadius:99, padding:'3px 8px', fontFamily:"'DM Mono',monospace", fontSize:8, color:TM }}>
+                      {Object.keys(item.allFotos).length} fotos
+                    </div>
+                  )}
+                </div>
+
+                {/* Info */}
+                <div style={{ padding:'16px 18px' }}>
+                  {/* Brand / Model */}
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, letterSpacing:'.15em', marginBottom:3 }}>{item.brand.toUpperCase()}</div>
+                    <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:20, color:TX, lineHeight:1.2 }}>{item.model}</div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:G, marginTop:2 }}>{item.ref}</div>
+                  </div>
+
+                  {/* Specs row */}
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
+                    {[item.material, item.size, item.dial].filter(Boolean).map((spec, si) => (
+                      <span key={si} style={{ background:S3, border:`1px solid ${BR}`, borderRadius:3, padding:'2px 8px', fontFamily:"'DM Mono',monospace", fontSize:8, color:TM, letterSpacing:'.06em' }}>
+                        {spec}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Condition + accessories */}
+                  <div style={{ display:'flex', gap:10, marginBottom:14, alignItems:'center' }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM }}>{item.condition}</span>
+                    <div style={{ display:'flex', gap:4, marginLeft:'auto' }}>
+                      {[['📦', item.fullSet, 'Full Set'], ['📄', item.papers, 'Papers'], ['📦', item.box, 'Box']].map(([icon, val, lbl]) => (
+                        <span key={lbl} title={lbl} style={{ fontSize:12, opacity: val ? 1 : .2 }}>{icon}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Price */}
+                  <div style={{ borderTop:`1px solid ${BR}`, paddingTop:12, display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
+                    <div>
+                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.15em', marginBottom:3 }}>PRECIO</div>
+                      {item.price > 0 ? (
+                        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:24, color:G, fontWeight:600 }}>
+                          {new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',minimumFractionDigits:0}).format(item.price)}
+                        </div>
+                      ) : (
+                        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color:TM }}>Consultar precio</div>
+                      )}
+                    </div>
+                    {item.serial && (
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em' }}>S/N</div>
+                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM }}>{item.serial}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Contact CTA */}
+                  <a href="https://wa.me/529991234567?text=Hola%2C%20me%20interesa%20el%20reloj%20" target="_blank" rel="noopener noreferrer"
+                    style={{ display:'block', marginTop:12, textAlign:'center', background: item.status === 'Disponible' ? G : S3, color: item.status === 'Disponible' ? BG : TM, padding:'9px 16px', borderRadius:5, fontFamily:"'DM Mono',monospace", fontSize:9, letterSpacing:'.12em', textDecoration:'none', fontWeight:600, border:`1px solid ${item.status === 'Disponible' ? G : BR}` }}>
+                    {item.status === 'Disponible' ? 'CONTACTAR · WHATSAPP' : item.status === 'Reservado' ? 'PIEZA RESERVADA' : 'CONSULTAR DISPONIBILIDAD'}
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── FOOTER ─────────────────────────────────────────── */}
+      <div style={{ borderTop:`1px solid ${BR}`, padding:'20px 32px', textAlign:'center', marginTop:32 }}>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:11, color:TD, letterSpacing:'.3em' }}>THE WRIST ROOM · MÉRIDA · YUCATÁN</div>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, marginTop:4, letterSpacing:'.15em' }}>CATÁLOGO ACTUALIZADO EN TIEMPO REAL</div>
+      </div>
+
+      {viewer && <MediaViewer url={viewer.url} nombre={viewer.nombre} onClose={() => setViewer(null)} />}
+    </div>
+  )
+}
+
 // Info row for detail panels
 function InfoRow({ label, value, color }) {
   return (
@@ -3995,9 +4244,12 @@ function AdminModule({ currentUser, currentRole }) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
   // ── Public gallery route — no auth required ────────────────────────────────
+  // ── Public routes — no auth required ─────────────────────────────────────
   const urlParams = new URLSearchParams(window.location.search)
   const galleryPiezaId = urlParams.get('gallery')
+  const isCatalog      = urlParams.get('catalogo') === '1'
   if (galleryPiezaId) return <PublicGallery piezaId={galleryPiezaId} />
+  if (isCatalog)      return <PublicCatalog />
 
   const [authUser, setAuthUser]       = useState(null)
   const [profile, setProfile]         = useState(null)
