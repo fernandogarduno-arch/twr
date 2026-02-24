@@ -1611,29 +1611,60 @@ function DashboardModule({ state }) {
           </div>
         </div>
 
-        {/* Capital por socio */}
-        <div style={card}>
-          <div style={cardHdr}>CAPITAL POR SOCIO</div>
-          <div style={{ padding: 14 }}>
-            {socios.length === 0
-              ? <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, textAlign: 'center', paddingTop: 20 }}>Sin socios registrados</div>
-              : socios.map((inv, i) => {
-                  const aportes = (inv.movimientos || []).filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
-                  return (
-                <div key={inv.id} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 12, color: TX }}>{inv.name.split(' ')[0]}</span>
-                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{inv.participacion}%</span>
-                  </div>
-                  <div style={{ background: S3, borderRadius: 2, height: 4, overflow: 'hidden' }}>
-                    <div style={{ background: inv.color || [G, BLU, GRN, PRP][i % 4], height: '100%', width: `${inv.participacion}%`, transition: 'width .5s ease' }} />
-                  </div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 3 }}>{fmt(aportes)}</div>
+        {/* Posición de Fernando */}
+        {(() => {
+          // Fernando financia todo — valor de su posición = efectivo aportado + costo de piezas conjuntas
+          const fernando = socios.find(s => s.name.toLowerCase().includes('fernando'))
+          const aporteEfectivo = fernando
+            ? (fernando.movimientos || []).filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
+            : 0
+          // Piezas en sociedad (no son 100% TWR) — costo financiado
+          const piezasConjuntas = watches.filter(w =>
+            w.stage !== 'baja' && w.modoAdquisicion !== 'twr'
+          )
+          const valorInventarioFernando = piezasConjuntas.reduce((a, w) => {
+            const split = w.modoAdquisicion === 'aportacion' && w.socioAportaId === fernando?.id ? 1
+              : w.modoAdquisicion === 'personalizado' && w.splitPersonalizado?.[fernando?.id]
+                ? (w.splitPersonalizado[fernando.id] / 100) : (fernando?.participacion || 40) / 100
+            return a + (w.cost || 0) * split
+          }, 0)
+          const totalExposicion = aporteEfectivo + valorInventarioFernando
+          const utilidadFernando = utilidad * ((fernando?.participacion || 40) / 100)
+
+          return (
+            <div style={card}>
+              <div style={cardHdr}>POSICIÓN INVERSIONISTA</div>
+              <div style={{ padding: '14px 18px' }}>
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 15, color: G, marginBottom: 14 }}>
+                  {fernando?.name || 'Fernando Garduño'}
                 </div>
-                  )
-              })}
-          </div>
-        </div>
+
+                {/* 3 métricas */}
+                {[
+                  { label: 'EFECTIVO APORTADO', value: fmt(aporteEfectivo), color: BLU, icon: '💵' },
+                  { label: 'VALOR EN INVENTARIO', value: fmt(valorInventarioFernando), color: G, icon: '⌚' },
+                  { label: 'UTILIDAD ACUMULADA', value: fmt(utilidadFernando), color: GRN, icon: '📈' },
+                ].map(({ label, value, color, icon }) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${BR}` }}>
+                    <div>
+                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em' }}>{icon} {label}</div>
+                    </div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color, fontWeight: 600 }}>{value}</div>
+                  </div>
+                ))}
+
+                {/* Total exposición */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em' }}>EXPOSICIÓN TOTAL</div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color: TX, fontWeight: 700 }}>{fmt(totalExposicion)}</div>
+                </div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, marginTop: 6, letterSpacing: '.08em' }}>
+                  TWR Capital recibe {100 - (fernando?.participacion || 40)}% de utilidades al cierre
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Row 2: Alertas + Distribución marcas + Clientes recientes */}
