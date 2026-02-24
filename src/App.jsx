@@ -27,7 +27,7 @@ const S2  = '#0F2B46'  // Card / panel
 const S3  = '#144058'  // Elevated input / table header
 const BR  = '#1C3D58'  // Border subtle
 const BRG = '#2A5272'  // Border accent / focused
-const TX  = '#F0EDE7'  // Warm white (matche s logo text)
+const TX  = '#F0EDE7'  // Warm white (matches logo text)
 const TM  = '#7BA0BA'  // Muted navy-blue label text
 const TD  = '#4A6E88'  // Dim/placeholder text
 const RED = '#E05A5A'  // Error / danger
@@ -731,8 +731,8 @@ function WatchGallery({ piezaId, fotos, onFotosChange, onIdentified }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-opus-4-5',
-          max_tokens: 1200,
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
           messages: [{
             role: 'user',
             content: [
@@ -742,26 +742,8 @@ function WatchGallery({ piezaId, fotos, onFotosChange, onIdentified }) {
               },
               {
                 type: 'text',
-                text: `Eres un experto en relojes de lujo con 30 años de experiencia. Analiza esta foto del reloj y extrae TODA la información posible. Responde ÚNICAMENTE con este JSON exacto (sin markdown, sin texto extra):
-{
-  "marca": "string o null",
-  "modelo": "string o null",
-  "referencia": "string o null — número de referencia exacto si es visible",
-  "apodo": "string o null — nombre popular ej: Submariner, Datejust, Speedmaster",
-  "calibre": "string o null",
-  "material_caja": "string o null — acero, oro amarillo, oro rosado, titanio, etc.",
-  "material_brazalete": "string o null",
-  "esfera": "string o null — color y diseño",
-  "bisel": "string o null — material y tipo",
-  "tamano": "string o null — diámetro estimado",
-  "complicaciones": ["string", ...],
-  "aprox_ano": "string o null — año o rango de años estimado",
-  "condicion_visible": "string o null — estado aparente: excelente/muy bueno/bueno/regular",
-  "serial_visible": "string o null — si hay serial visible en foto",
-  "notas_autenticidad": "string o null — detalles que indican si parece auténtico",
-  "confianza": "alta | media | baja",
-  "advertencias": ["string", ...]
-}`
+                text: `Identifica este reloj de lujo. Responde SOLO con JSON (sin markdown):
+{"marca":null,"modelo":null,"referencia":null,"apodo":null,"calibre":null,"material_caja":null,"material_brazalete":null,"esfera":null,"bisel":null,"tamano":null,"complicaciones":[],"aprox_ano":null,"condicion_visible":null,"serial_visible":null,"notas_autenticidad":null,"confianza":"alta|media|baja","advertencias":[]}`
               }
             ]
           }]
@@ -2013,41 +1995,13 @@ function AIVerificador({ watch, brand, model, ref_, fotos, onLoadingChange, onAd
     setError(null)
     setResult(null)
     try {
-      const prompt = `Eres un experto en relojes de lujo. Analiza esta pieza y responde ÚNICAMENTE con un JSON válido:
-
-PIEZA A VERIFICAR:
-- Marca: ${brand?.name}
-- Modelo: ${model?.name}
-- Referencia: ${ref_?.ref || 'No especificada'}
-- Calibre: ${ref_?.caliber || 'No especificado'}
-- Material caja: ${ref_?.material || 'No especificado'}
-- Esfera: ${ref_?.dial || 'No especificada'}
-- Bisel: ${ref_?.bezel || 'No especificado'}
-- Diámetro: ${ref_?.size || 'No especificado'}
-- Serial: ${watch.serial || 'No especificado'}
-- Condición: ${watch.condition || 'No especificada'}
-- Precio de costo registrado: ${watch.cost ? '$' + watch.cost.toLocaleString('es-MX') + ' MXN' : 'No registrado'}
-- Precio público registrado: ${watch.priceAsked ? '$' + watch.priceAsked.toLocaleString('es-MX') + ' MXN' : 'No registrado'}
-
-Busca en internet el precio de mercado actual de este reloj y responde con este JSON exacto (sin markdown, sin texto adicional):
-{
-  "referenciaValida": true/false,
-  "notasReferencia": "string — ¿existe esta referencia? ¿es correcta la combinación de specs?",
-  "precioMercadoUSD": number_or_null,
-  "precioMercadoMXN": number_or_null,
-  "fuentesPrecio": ["Chrono24", "WatchCharts", etc],
-  "rangoPrecioUSD": { "min": number, "max": number },
-  "evaluacionPrecio": "bajo_mercado | en_mercado | sobre_mercado | no_determinado",
-  "margenSugerido": "string — margen recomendado para este modelo en el mercado secundario mexicano",
-  "alertas": ["string", ...],
-  "recomendaciones": ["string", ...],
-  "autenticidadFlags": ["string — características a verificar en físico para autenticar"],
-  "serialInfo": "string — qué indica el rango de serial si está disponible"
-}`
+      const prompt = `Verifica este reloj de lujo buscando precio de mercado actual. Responde SOLO con JSON (sin markdown):
+Reloj: ${brand?.name} ${model?.name} ref ${ref_?.ref||'?'} ${ref_?.material||''} ${ref_?.size||''} serial:${watch.serial||'?'} condición:${watch.condition||'?'} costo:${watch.cost?'$'+watch.cost.toLocaleString('es-MX')+' MXN':'?'} precio:${watch.priceAsked?'$'+watch.priceAsked.toLocaleString('es-MX')+' MXN':'?'}
+{"referenciaValida":true,"notasReferencia":null,"precioMercadoUSD":null,"precioMercadoMXN":null,"fuentesPrecio":[],"rangoPrecioUSD":{"min":0,"max":0},"evaluacionPrecio":"bajo_mercado|en_mercado|sobre_mercado|no_determinado","margenSugerido":null,"alertas":[],"recomendaciones":[],"autenticidadFlags":[],"serialInfo":null}`
 
       const data = await callClaude({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 800,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }]
       })
@@ -2070,15 +2024,15 @@ Busca en internet el precio de mercado actual de este reloj y responde con este 
     setError(null)
     try {
       const data = await callClaude({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 500,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
           role: 'user',
           content: `Busca imágenes del reloj: ${nombreReloj} ref ${ref_?.ref || ''}.
 Responde ÚNICAMENTE con un JSON array, sin texto antes ni después, sin markdown:
 [{"url":"https://...jpg","fuente":"Chrono24","descripcion":"Vista frontal"},...]
-Incluye hasta 6 URLs directas de imágenes (.jpg .jpeg .png .webp) de sitios como Chrono24, WatchFinder, WatchBox.`
+IMPORTANTE: Solo URLs de CDN de tiendas (cdn.chrono24.com, watchfinder.co.uk, bobswatches.com, watchbox.com). NO foros ni Reddit. Imágenes directas .jpg .jpeg .png .webp.`
         }]
       })
       const textBlock = data.content?.find(c => c.type === 'text')
@@ -2419,14 +2373,33 @@ Incluye hasta 6 URLs directas de imágenes (.jpg .jpeg .png .webp) de sitios com
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
             {imgResults.map((img, idx) => (
               <div key={idx} style={{ background:S3, borderRadius:4, overflow:'hidden', border:`1px solid ${BR}` }}>
-                {/* Image via proxy to avoid CORS */}
-                <div style={{ width:'100%', aspectRatio:'1', background:S2, position:'relative', overflow:'hidden' }}>
+                {/* Try direct URL first, then proxy, then placeholder */}
+                <div style={{ width:'100%', aspectRatio:'1', background:S2, position:'relative', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   <img
-                    src={proxyImg(img.url)}
+                    src={img.url}
                     alt={img.descripcion || nombreReloj}
                     style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }}
-                    onError={e => { e.target.style.display='none'; e.target.parentNode.style.background=S1 }}
+                    onError={e => {
+                      // Try proxy as fallback
+                      if (!e.target.dataset.triedProxy) {
+                        e.target.dataset.triedProxy = '1'
+                        e.target.src = proxyImg(img.url)
+                      } else {
+                        // Both failed — show placeholder
+                        e.target.style.display = 'none'
+                        e.target.nextElementSibling.style.display = 'flex'
+                      }
+                    }}
                   />
+                  {/* Placeholder shown when image fails */}
+                  <div style={{ display:'none', position:'absolute', inset:0, flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, padding:8, textAlign:'center' }}>
+                    <div style={{ fontSize:24 }}>🔒</div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.08em' }}>IMAGEN PROTEGIDA</div>
+                    <a href={img.url} target="_blank" rel="noopener noreferrer"
+                      style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:BLU, letterSpacing:'.08em', textDecoration:'none' }}>
+                      ↗ VER EN FUENTE
+                    </a>
+                  </div>
                 </div>
                 <div style={{ padding:'8px 8px 6px' }}>
                   <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM }}>{img.fuente}</div>
