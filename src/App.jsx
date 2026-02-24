@@ -688,10 +688,103 @@ const POSICIONES = [
   { id:'venta',     label:'Foto Venta',   icon:'◈' },
 ]
 
-function WatchGallery({ piezaId, fotos, onFotosChange }) {
-  const [uploading, setUploading]  = useState(null)  // posicion uploading
-  const [viewer, setViewer]        = useState(null)   // { url, nombre }
+function WatchGallery({ piezaId, fotos, onFotosChange, onIdentified }) {
+  const [uploading, setUploading]  = useState(null)
+  const [viewer, setViewer]        = useState(null)
+  const [aiId, setAiId]            = useState(null)   // resultado identificación IA
+  const [aiLoading, setAiLoading]  = useState(false)
+  const [aiError, setAiError]      = useState(null)
+  const [aiSource, setAiSource]    = useState(null)   // nombre foto que se analizó
   const myFotos = fotos.filter(f => f.piezaId === piezaId)
+
+  // Convierte imagen (File o URL) → base64 data string
+  const toBase64 = async (src) => {
+    if (src instanceof File) {
+      return new Promise((res, rej) => {
+        const r = new FileReader()
+        r.onload = () => res(r.result.split(',')[1])
+        r.onerror = rej
+        r.readAsDataURL(src)
+      })
+    }
+    // URL → fetch via proxy and convert
+    const resp = await fetch(`/api/img?url=${encodeURIComponent(src)}`)
+    if (!resp.ok) throw new Error('No se pudo cargar la imagen')
+    const blob = await resp.blob()
+    return new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = () => res(r.result.split(',')[1])
+      r.onerror = rej
+      r.readAsDataURL(blob)
+    })
+  }
+
+  const identificarConIA = async (src, nombre) => {
+    setAiLoading(true)
+    setAiId(null)
+    setAiError(null)
+    setAiSource(nombre)
+    try {
+      const b64 = await toBase64(src)
+      const mimeType = (src instanceof File) ? (src.type || 'image/jpeg') : 'image/jpeg'
+      const response = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-opus-4-5',
+          max_tokens: 1200,
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: mimeType, data: b64 }
+              },
+              {
+                type: 'text',
+                text: `Eres un experto en relojes de lujo con 30 años de experiencia. Analiza esta foto del reloj y extrae TODA la información posible. Responde ÚNICAMENTE con este JSON exacto (sin markdown, sin texto extra):
+{
+  "marca": "string o null",
+  "modelo": "string o null",
+  "referencia": "string o null — número de referencia exacto si es visible",
+  "apodo": "string o null — nombre popular ej: Submariner, Datejust, Speedmaster",
+  "calibre": "string o null",
+  "material_caja": "string o null — acero, oro amarillo, oro rosado, titanio, etc.",
+  "material_brazalete": "string o null",
+  "esfera": "string o null — color y diseño",
+  "bisel": "string o null — material y tipo",
+  "tamano": "string o null — diámetro estimado",
+  "complicaciones": ["string", ...],
+  "aprox_ano": "string o null — año o rango de años estimado",
+  "condicion_visible": "string o null — estado aparente: excelente/muy bueno/bueno/regular",
+  "serial_visible": "string o null — si hay serial visible en foto",
+  "notas_autenticidad": "string o null — detalles que indican si parece auténtico",
+  "confianza": "alta | media | baja",
+  "advertencias": ["string", ...]
+}`
+              }
+            ]
+          }]
+        })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        const msg = data?.error?.message || data?.error || `HTTP ${response.status}`
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      }
+      const textBlock = data.content?.find(c => c.type === 'text')
+      if (!textBlock) throw new Error('Sin respuesta del modelo')
+      const start = textBlock.text.indexOf('{')
+      const end = textBlock.text.lastIndexOf('}')
+      if (start === -1 || end === -1) throw new Error('Respuesta no es JSON válido')
+      const parsed = JSON.parse(textBlock.text.slice(start, end + 1))
+      setAiId(parsed)
+    } catch(e) {
+      console.error('[TWR AI-ID]', e)
+      setAiError('Error al identificar: ' + e.message)
+    }
+    setAiLoading(false)
+  }
 
   const uploadFoto = async (posicion, file) => {
     if (!file) return
@@ -735,19 +828,32 @@ function WatchGallery({ piezaId, fotos, onFotosChange }) {
 
   const hasAny = myFotos.length > 0
 
+  const confColor = v => ({ alta: GRN, media: G, baja: RED })[v] || TM
+
   return (
     <div>
+      {/* Header: galería + botón identificar nueva foto */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
         <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:TM, letterSpacing:'.12em' }}>
           GALERÍA · {myFotos.length}/6 FOTOS
         </div>
-        {hasAny && (
-          <button onClick={shareGallery}
-            style={{ background:'none', border:`1px solid ${G}44`, color:G, padding:'4px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.08em' }}>
-            ↗ COMPARTIR GALERÍA
-          </button>
-        )}
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          {hasAny && (
+            <button onClick={shareGallery}
+              style={{ background:'none', border:`1px solid ${G}44`, color:G, padding:'4px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.08em' }}>
+              ↗ COMPARTIR
+            </button>
+          )}
+          {/* Upload + identify — nueva foto sin agregar a galería */}
+          <label style={{ background:BLU+'22', border:`1px solid ${BLU}44`, color:BLU, padding:'4px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.08em', display:'inline-flex', alignItems:'center', gap:5 }}>
+            🤖 IDENTIFICAR
+            <input type="file" accept="image/*" style={{ display:'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if(f) identificarConIA(f, f.name); e.target.value='' }} />
+          </label>
+        </div>
       </div>
+
+      {/* Grid de fotos */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
         {POSICIONES.map(pos => {
           const foto = myFotos.find(f => f.posicion === pos.id)
@@ -762,11 +868,17 @@ function WatchGallery({ piezaId, fotos, onFotosChange }) {
                     onMouseEnter={e => e.currentTarget.style.opacity='1'}
                     onMouseLeave={e => e.currentTarget.style.opacity='0'}>
                     <button onClick={() => setViewer({ url:foto.url, nombre:pos.label })}
+                      title="Ver"
                       style={{ background:'rgba(255,255,255,.15)', border:'none', color:TX, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:16, backdropFilter:'blur(4px)' }}>⤢</button>
-                    <label style={{ background:'rgba(201,169,110,.2)', border:`1px solid ${G}`, color:G, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
+                    {/* 🤖 Identificar esta foto */}
+                    <button onClick={() => identificarConIA(foto.url, pos.label)}
+                      title="Identificar con IA"
+                      style={{ background:'rgba(41,128,185,.3)', border:`1px solid ${BLU}`, color:BLU, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:14, backdropFilter:'blur(4px)' }}>🔍</button>
+                    <label title="Reemplazar"
+                      style={{ background:'rgba(201,169,110,.2)', border:`1px solid ${G}`, color:G, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
                       ✎<input type="file" accept="image/*" style={{ display:'none' }} onChange={e => uploadFoto(pos.id, e.target.files?.[0])} />
                     </label>
-                    <button onClick={() => deleteFoto(foto)}
+                    <button onClick={() => deleteFoto(foto)} title="Eliminar"
                       style={{ background:'rgba(224,90,90,.2)', border:`1px solid ${RED}`, color:RED, width:36, height:36, borderRadius:'50%', cursor:'pointer', fontSize:16, backdropFilter:'blur(4px)' }}>✕</button>
                   </div>
                   <div style={{ position:'absolute', bottom:0, left:0, right:0, background:'linear-gradient(transparent,rgba(0,0,0,.7))', padding:'16px 8px 6px', fontFamily:"'DM Mono',monospace", fontSize:8, color:'rgba(255,255,255,.7)', letterSpacing:'.1em' }}>
@@ -777,13 +889,11 @@ function WatchGallery({ piezaId, fotos, onFotosChange }) {
                 <label style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', cursor:isUp?'wait':'pointer', gap:6 }}>
                   {isUp ? (
                     <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, animation:'pulse 1s infinite', letterSpacing:'.1em' }}>SUBIENDO...</div>
-                  ) : (
-                    <>
-                      <div style={{ fontSize:20, color:TD }}>{pos.icon}</div>
-                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', textAlign:'center' }}>{pos.label.toUpperCase()}</div>
-                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM, letterSpacing:'.08em' }}>+ SUBIR</div>
-                    </>
-                  )}
+                  ) : (<>
+                    <div style={{ fontSize:20, color:TD }}>{pos.icon}</div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', textAlign:'center' }}>{pos.label.toUpperCase()}</div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TM, letterSpacing:'.08em' }}>+ SUBIR</div>
+                  </>)}
                   {!isUp && <input type="file" accept="image/*" style={{ display:'none' }} onChange={e => uploadFoto(pos.id, e.target.files?.[0])} />}
                 </label>
               )}
@@ -791,6 +901,115 @@ function WatchGallery({ piezaId, fotos, onFotosChange }) {
           )
         })}
       </div>
+
+      {/* ── PANEL IDENTIFICACIÓN IA ── */}
+      {(aiLoading || aiError || aiId) && (
+        <div style={{ marginTop:16, background:S3, borderRadius:6, border:`1px solid ${BLU}33`, padding:'14px 16px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:BLU, letterSpacing:'.12em' }}>
+              🤖 IDENTIFICACIÓN IA {aiSource ? `· ${aiSource.toUpperCase()}` : ''}
+            </div>
+            <button onClick={() => { setAiId(null); setAiError(null); setAiLoading(false) }}
+              style={{ background:'none', border:'none', color:TD, cursor:'pointer', fontSize:14 }}>✕</button>
+          </div>
+
+          {aiLoading && (
+            <div style={{ textAlign:'center', padding:'16px 0' }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:BLU, letterSpacing:'.1em' }}>ANALIZANDO IMAGEN...</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginTop:5 }}>Claude está identificando el reloj</div>
+            </div>
+          )}
+
+          {aiError && (
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:RED }}>{aiError}</div>
+          )}
+
+          {aiId && (() => {
+            const fields = [
+              { label:'MARCA',        value: aiId.marca },
+              { label:'MODELO',       value: aiId.modelo },
+              { label:'APODO',        value: aiId.apodo },
+              { label:'REFERENCIA',   value: aiId.referencia, highlight: true },
+              { label:'CALIBRE',      value: aiId.calibre },
+              { label:'CAJA',         value: aiId.material_caja },
+              { label:'BRAZALETE',    value: aiId.material_brazalete },
+              { label:'ESFERA',       value: aiId.esfera },
+              { label:'BISEL',        value: aiId.bisel },
+              { label:'TAMAÑO',       value: aiId.tamano },
+              { label:'AÑO APROX.',   value: aiId.aprox_ano },
+              { label:'CONDICIÓN',    value: aiId.condicion_visible },
+              { label:'SERIAL VISTO', value: aiId.serial_visible },
+            ].filter(f => f.value)
+
+            return (
+              <>
+                {/* Confianza badge */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD }}>CONFIANZA:</div>
+                  <div style={{ background:confColor(aiId.confianza)+'22', border:`1px solid ${confColor(aiId.confianza)}44`, borderRadius:3, padding:'2px 8px', fontFamily:"'DM Mono',monospace", fontSize:9, color:confColor(aiId.confianza) }}>
+                    {(aiId.confianza||'').toUpperCase()}
+                  </div>
+                </div>
+
+                {/* Campos en grid 2 col */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 12px', marginBottom:10 }}>
+                  {fields.map(({label, value, highlight}) => (
+                    <div key={label} style={{ background:highlight ? G+'11' : S2, borderRadius:3, padding:'5px 8px', border: highlight ? `1px solid ${G}33` : 'none' }}>
+                      <div style={{ fontFamily:"'DM Mono',monospace", fontSize:7, color:TD, letterSpacing:'.12em', marginBottom:2 }}>{label}</div>
+                      <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color: highlight ? G : TX }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Complicaciones */}
+                {aiId.complicaciones?.length > 0 && (
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:7, color:TD, letterSpacing:'.12em', marginBottom:5 }}>COMPLICACIONES</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                      {aiId.complicaciones.map((c,i) => (
+                        <span key={i} style={{ background:S2, border:`1px solid ${BR}`, borderRadius:3, padding:'2px 8px', fontFamily:"'DM Mono',monospace", fontSize:9, color:TM }}>{c}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notas autenticidad */}
+                {aiId.notas_autenticidad && (
+                  <div style={{ background:GRN+'11', border:`1px solid ${GRN}22`, borderRadius:3, padding:'7px 10px', marginBottom:8 }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:7, color:TD, letterSpacing:'.12em', marginBottom:3 }}>NOTAS DE AUTENTICIDAD</div>
+                    <div style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX }}>{aiId.notas_autenticidad}</div>
+                  </div>
+                )}
+
+                {/* Advertencias */}
+                {aiId.advertencias?.length > 0 && (
+                  <div style={{ background:RED+'11', border:`1px solid ${RED}22`, borderRadius:3, padding:'7px 10px', marginBottom:10 }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:7, color:RED, letterSpacing:'.12em', marginBottom:4 }}>⚠ ADVERTENCIAS</div>
+                    {aiId.advertencias.map((a,i) => (
+                      <div key={i} style={{ fontFamily:"'Jost',sans-serif", fontSize:11, color:TX, marginBottom:2 }}>• {a}</div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Botones acción */}
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => { setAiId(null); setAiError(null) }}
+                    style={{ flex:1, padding:'7px 0', background:'transparent', border:`1px solid ${BR}`, borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, cursor:'pointer', letterSpacing:'.1em' }}>
+                    DESCARTAR
+                  </button>
+                  {onIdentified && (
+                    <button onClick={() => { onIdentified(aiId); setAiId(null) }}
+                      style={{ flex:2, padding:'7px 0', background:G+'22', border:`1px solid ${G}44`, borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, color:G, cursor:'pointer', letterSpacing:'.1em' }}>
+                      ✓ USAR DATOS EN PIEZA
+                    </button>
+                  )}
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
       {viewer && <MediaViewer url={viewer.url} nombre={viewer.nombre} onClose={() => setViewer(null)} />}
     </div>
   )
@@ -2952,6 +3171,18 @@ function InventarioModule({ state, setState }) {
               piezaId={selWatch.id}
               fotos={state.fotos}
               onFotosChange={updater => setState(s => ({ ...s, fotos: typeof updater === 'function' ? updater(s.fotos) : updater }))}
+              onIdentified={(aiData) => {
+                // Pre-fill edit form with AI-identified data and switch to Info tab
+                setEditForm(prev => ({
+                  ...prev,
+                  serial: aiData.serial_visible || prev.serial || '',
+                  condition: aiData.condicion_visible || prev.condition || '',
+                  notes: [prev.notes, aiData.notas_autenticidad ? `IA: ${aiData.notas_autenticidad}` : ''].filter(Boolean).join('\n'),
+                }))
+                toast(`🤖 Identificado: ${[aiData.marca, aiData.modelo, aiData.referencia].filter(Boolean).join(' ')} · Datos aplicados al formulario de edición`, 'info')
+                setShowEdit(true)
+                setDetailTab('info')
+              }}
             />
           )}
 
