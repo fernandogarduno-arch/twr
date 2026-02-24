@@ -302,26 +302,31 @@ const storage = {
 
 // DB helpers for fotos/docs
 const mediaDb = {
+  // Returns the DB-generated UUID for the new row
   async saveFoto(f) {
-    const { error } = await sb.from('pieza_fotos').insert({
-      id: f.id, pieza_id: f.piezaId, posicion: f.posicion,
+    const { data, error } = await sb.from('pieza_fotos').insert({
+      // NO id — Supabase genera el UUID automáticamente
+      pieza_id: f.piezaId, posicion: f.posicion,
       url: f.url, storage_path: f.storagePath,
       uploaded_by: _auditUser?.id || null
-    })
+    }).select('id').single()
     if (error) throw new Error(error.message)
+    return data.id  // UUID real generado por Postgres
   },
   async deleteFoto(id) {
     const { error } = await sb.from('pieza_fotos').delete().eq('id', id)
     if (error) throw new Error(error.message)
   },
   async saveDoc(d) {
-    const { error } = await sb.from('transaccion_docs').insert({
-      id: d.id, entidad_tipo: d.entidadTipo, entidad_id: d.entidadId,
+    const { data, error } = await sb.from('transaccion_docs').insert({
+      // NO id — Supabase genera el UUID automáticamente
+      entidad_tipo: d.entidadTipo, entidad_id: d.entidadId,
       tipo: d.tipo, nombre_archivo: d.nombreArchivo,
       url: d.url, storage_path: d.storagePath,
       verificado: false, uploaded_by: _auditUser?.id || null
-    })
+    }).select('id').single()
     if (error) throw new Error(error.message)
+    return data.id  // UUID real generado por Postgres
   },
   async verifyDoc(id, verificadoPor) {
     const { error } = await sb.from('transaccion_docs').update({
@@ -650,9 +655,9 @@ function WatchGallery({ piezaId, fotos, onFotosChange }) {
         onFotosChange(prev => prev.filter(f => f.id !== existing.id))
       }
       const { url, storagePath } = await storage.uploadFoto(piezaId, posicion, file)
-      const newFoto = { id: 'F' + uid(), piezaId, posicion, url, storagePath, createdAt: new Date().toISOString() }
-      await mediaDb.saveFoto(newFoto)
-      onFotosChange(prev => [...prev, newFoto])
+      const newFoto = { id: null, piezaId, posicion, url, storagePath, createdAt: new Date().toISOString() }
+      const dbId = await mediaDb.saveFoto(newFoto)  // returns real UUID
+      onFotosChange(prev => [...prev, { ...newFoto, id: dbId }])
       logAction('create', 'inventario', 'foto', `Subió foto ${posicion} · ${piezaId}`, piezaId)
       toast(`Foto "${POSICIONES.find(p=>p.id===posicion)?.label}" guardada`)
     } catch(e) { toast('Error al subir: ' + e.message, 'error') }
@@ -775,13 +780,14 @@ function ComplianceDocs({ entidadTipo, entidadId, docs, onDocsChange, currentUse
     try {
       const { url, storagePath } = await storage.uploadDoc(entidadTipo, entidadId, tipoId, file)
       const newDoc = {
-        id: 'D' + uid(), entidadTipo, entidadId, tipo: tipoId,
+        id: null, entidadTipo, entidadId, tipo: tipoId,
         nombreArchivo: file.name, url, storagePath,
         verificado: false, fechaVerificacion: null, verificadoPor: null,
         createdAt: new Date().toISOString()
       }
-      await mediaDb.saveDoc(newDoc)
-      onDocsChange(prev => [...prev.filter(d => !(d.entidadTipo===entidadTipo && d.entidadId===entidadId && d.tipo===tipoId)), newDoc])
+      const dbId = await mediaDb.saveDoc(newDoc)  // returns real UUID
+      const savedDoc = { ...newDoc, id: dbId }
+      onDocsChange(prev => [...prev.filter(d => !(d.entidadTipo===entidadTipo && d.entidadId===entidadId && d.tipo===tipoId)), savedDoc])
       logAction('create', 'compliance', 'documento', `Subió doc "${tipos.find(t=>t.id===tipoId)?.label}"`, entidadId)
       toast(`Documento "${tipos.find(t=>t.id===tipoId)?.label}" guardado`)
     } catch(e) { toast('Error al subir doc: ' + e.message, 'error') }
