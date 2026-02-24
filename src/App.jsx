@@ -1412,10 +1412,21 @@ function KPI({ label, value, sub, accent = G }) {
 // ══════════════════════════════════════════════════════════════════════════════
 //  WATCH CARD
 // ══════════════════════════════════════════════════════════════════════════════
-function WatchCard({ watch, refs, models, brands, onClick }) {
+function WatchCard({ watch, refs, models, brands, socios, onClick }) {
   const ref   = refs.find(r => r.id === watch.refId)
   const model = models.find(m => m.id === ref?.modelId)
   const brand = brands.find(b => b.id === model?.brandId)
+
+  const MODO = {
+    aportacion: { label: null, color: BLU },   // label built dynamically
+    twr:        { label: 'TWR', color: TM },
+    sociedad:   { label: 'Conjunta', color: PRP },
+    personalizado: { label: 'Split', color: G },
+  }
+  const modo = watch.modoAdquisicion || 'sociedad'
+  const modoColor = MODO[modo]?.color || TM
+  const modoLabel = modo === 'aportacion' ? 'Socio'
+    : MODO[modo]?.label || modo
 
   return (
     <div onClick={onClick}
@@ -1427,7 +1438,20 @@ function WatchCard({ watch, refs, models, brands, onClick }) {
           <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 17, color: TX }}>{brand?.name} {model?.name}</div>
           <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginTop: 2 }}>Ref: {ref?.ref || '—'}{watch.serial && ` · S/N: ${watch.serial}`}</div>
         </div>
-        <Badge label={watch.status} color={statusColor(watch.status)} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <Badge label={watch.status} color={statusColor(watch.status)} />
+          <span style={{
+            fontFamily: "'DM Mono', monospace", fontSize: 8, letterSpacing: '.1em',
+            color: modoColor, background: modoColor + '18',
+            border: `1px solid ${modoColor}44`,
+            borderRadius: 3, padding: '2px 6px', whiteSpace: 'nowrap'
+          }}>
+            {modoLabel === 'TWR' ? '🏢 TWR'
+              : modoLabel === 'Conjunta' ? '🤝 Conjunta'
+              : modoLabel === 'Split' ? '📊 Split'
+              : `👤 ${modoLabel}`}
+          </span>
+        </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, color: TX }}>{watch.cost ? fmt(watch.cost) : 'Sin precio'}</div>
@@ -1728,7 +1752,7 @@ function DashboardModule({ state }) {
 //  INVENTARIO
 // ══════════════════════════════════════════════════════════════════════════════
 function InventarioModule({ state, setState }) {
-  const { watches, sales, brands, models, refs, suppliers, clients } = state
+  const { watches, sales, socios, brands, models, refs, suppliers, clients } = state
   const [view, setView]         = useState('pipeline')
   const [selWatch, setSelWatch] = useState(null)
   const [showAdd, setShowAdd]   = useState(false)
@@ -2101,7 +2125,7 @@ function InventarioModule({ state, setState }) {
                 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD, marginLeft: 'auto' }}>{stage.items.length}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {stage.items.map(w => <WatchCard key={w.id} watch={w} refs={refs} models={models} brands={brands} onClick={() => setSelWatch(w)} />)}
+                {stage.items.map(w => <WatchCard key={w.id} watch={w} refs={refs} models={models} brands={brands} socios={socios} onClick={() => setSelWatch(w)} />)}
                 {stage.items.length === 0 && <div style={{ border: `1px dashed ${BR}`, borderRadius: 6, padding: 20, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD }}>Sin piezas</div>}
               </div>
             </div>
