@@ -1771,11 +1771,13 @@ function AIVerificador({ watch, brand, model, ref_, fotos }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    const data = await response.json()
     if (!response.ok) {
-      const err = await response.json()
-      throw new Error(err.error || `HTTP ${response.status}`)
+      // Extraer mensaje del error correctamente
+      const msg = data?.error?.message || data?.error || data?.message || `HTTP ${response.status}`
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
     }
-    return response.json()
+    return data
   }
 
   const verificar = async () => {
@@ -1832,6 +1834,7 @@ Busca en internet el precio de mercado actual de este reloj y responde con este 
       const parsed = JSON.parse(clean)
       setResult(parsed)
     } catch (e) {
+      console.error('[TWR AI] Error verificar:', e)
       setError('Error al verificar: ' + e.message)
     }
     setLoading(false)
@@ -1863,6 +1866,7 @@ Solo URLs que terminen en .jpg, .jpeg, .png, .webp. Sin markdown.`
         setImgResults(Array.isArray(imgs) ? imgs : [])
       }
     } catch (e) {
+      console.error('[TWR AI] Error fotos:', e)
       setError('Error buscando fotos: ' + e.message)
     }
     setLoadingImgs(false)
