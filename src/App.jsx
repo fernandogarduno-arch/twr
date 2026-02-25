@@ -195,7 +195,8 @@ const db = {
       validation_date: w.validationDate || null, notes: w.notes || null,
       modo_adquisicion: w.modoAdquisicion || 'sociedad',
       socio_aporta_id: w.socioAportaId || null,
-      split_personalizado: w.splitPersonalizado || null
+      split_personalizado: w.splitPersonalizado || null,
+      fuente_fondos: w.fuenteFondos || 'flujo'
     })
     if (error) throw new Error(error.message)
   },
