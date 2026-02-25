@@ -572,19 +572,28 @@ function Badge({ label, color, small }) {
 // Modal overlay
 function Modal({ title, onClose, width = 520, children, blocking = false }) {
   useEffect(() => {
-    const handler = e => { if (e.key === 'Escape' && !blocking) onClose() }
+    const handler = e => {
+      if (e.key === 'Escape') {
+        if (!blocking) onClose()
+        // Fuerza cierre con doble Escape aunque esté bloqueado (escape de emergencia)
+        else if (e.repeat) onClose()
+      }
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [onClose, blocking])
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(4,18,36,.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-         onClick={e => e.target === e.currentTarget && !blocking && onClose()}>
+         onClick={e => e.target === e.currentTarget && !blocking && onClose()}
+         onDoubleClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:S2, border:`1px solid ${BR}`, borderRadius:8, width:'100%', maxWidth:width,
                     maxHeight:'90vh', overflowY:'auto', animation:'fi .2s ease' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderBottom:`1px solid ${BR}` }}>
           <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color: TX, letterSpacing:'.05em' }}>{title}</div>
-          <button onClick={blocking ? undefined : onClose} style={{ background:'none', border:'none', color: blocking ? BR : TD, fontSize:20, cursor: blocking ? 'not-allowed' : 'pointer', lineHeight:1, transition:'color .2s' }}
-            onMouseEnter={e=>{ if(!blocking) e.currentTarget.style.color=TX }} onMouseLeave={e=>{ if(!blocking) e.currentTarget.style.color=TD }}>×</button>
+          <button onClick={onClose}
+            title={blocking ? 'Haz doble clic para forzar cierre' : 'Cerrar'}
+            style={{ background:'none', border:'none', color: blocking ? BR : TD, fontSize:20, cursor:'pointer', lineHeight:1, transition:'color .2s' }}
+            onMouseEnter={e=>{ e.currentTarget.style.color=TX }} onMouseLeave={e=>{ e.currentTarget.style.color = blocking ? BR : TD }}>×</button>
         </div>
         <div style={{ padding:24 }}>{children}</div>
       </div>
@@ -2964,8 +2973,9 @@ function InventarioModule({ state, setState }) {
       }))
       setSelWatch(p => ({ ...p, ...prevWatchState }))
       toast('Error al registrar venta: ' + e.message, 'error')
+    } finally {
+      setWatchSaving(false)
     }
-    setWatchSaving(false)
   }
 
   const savePay = async saleId => {
@@ -3001,8 +3011,9 @@ function InventarioModule({ state, setState }) {
     } catch (e) {
       setState(s => ({ ...s, sales: prevSales }))
       toast('Error al registrar pago: ' + e.message, 'error')
+    } finally {
+      setWatchSaving(false)
     }
-    setWatchSaving(false)
   }
 
   // ── Liquidación automática al completar pago ────────────────────────────
