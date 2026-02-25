@@ -82,6 +82,7 @@ const logAction = (action, module, entity, description, entityId = null) => {
 
 // ── DB watchdog — timeout + console logging for every db call ──
 const DB_TIMEOUT_MS = 8000
+let _setSessionExpired = null  // set by App to propagate session expiry
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
@@ -95,6 +96,8 @@ function withTimeout(fn, name) {
       return result
     } catch(e) {
       console.error(`[TWR DB] ✗ ${name} (${Math.round(performance.now()-t0)}ms) →`, e.message)
+      // If it timed out, likely session expired — show banner
+      if (e.message.includes('TIMEOUT') && _setSessionExpired) _setSessionExpired(true)
       throw e
     }
   }
@@ -2657,44 +2660,42 @@ function InventarioModule({ state, setState }) {
       }
     }
 
-    // ── Create — Supabase primero, local solo si confirma ──────────────────
-    // Así nunca quedan datos "fantasma" en local sin estar en Supabase
+    // ── Create — Supabase first, local only on confirm ──────────────────────
     setQcSaving(true)
     try {
       if (type === 'brand') {
         const brand = { id: 'B' + uid(), name: qf.name.trim(), country: qf.country || 'Suiza', founded: qf.founded || null, notes: '' }
-        await db.saveBrand(brand)  // Supabase primero
+        await db.saveBrand(brand)
         setState(s => ({ ...s, brands: [...s.brands, brand] }))
         setWf(f => ({ ...f, _brandId: brand.id, _modelId: '', refId: '' }))
         toast(`Marca "${brand.name}" creada`)
       } else if (type === 'model') {
         const model = { id: 'M' + uid(), brandId: wf._brandId, name: qf.name.trim(), family: qf.family || '', notes: '' }
-        await db.saveModel(model)  // Supabase primero
+        await db.saveModel(model)
         setState(s => ({ ...s, models: [...s.models, model] }))
         setWf(f => ({ ...f, _modelId: model.id, refId: '' }))
         toast(`Modelo "${model.name}" creado`)
       } else if (type === 'ref') {
         const ref = { id: 'R' + uid(), modelId: wf._modelId, ref: qf.ref.trim(), caliber: qf.caliber || '', material: qf.material || 'Acero', bezel: qf.bezel || '', dial: qf.dial || '', size: qf.size || '', bracelet: '', year: +qf.year || null, notes: '' }
-        await db.saveRef(ref)  // Supabase primero
+        await db.saveRef(ref)
         setState(s => ({ ...s, refs: [...s.refs, ref] }))
         setWf(f => ({ ...f, refId: ref.id }))
         toast(`Referencia "${ref.ref}" creada`)
       } else if (type === 'supplier') {
         const supplier = { id: 'P' + uid(), name: qf.name.trim(), type: qf.type || 'Particular', phone: qf.phone || '', email: '', city: '', notes: '', rating: 3, totalDeals: 0 }
-        await db.saveSupplier(supplier)  // Supabase primero
+        await db.saveSupplier(supplier)
         setState(s => ({ ...s, suppliers: [...s.suppliers, supplier] }))
         setWf(f => ({ ...f, supplierId: supplier.id }))
         toast(`Proveedor "${supplier.name}" creado`)
       } else if (type === 'client') {
         const client = { id: 'C' + uid(), name: qf.name.trim(), phone: qf.phone || '', email: '', city: '', tier: 'Prospecto', notes: '', totalSpent: 0, totalPurchases: 0 }
-        await db.saveClient(client)  // Supabase primero
+        await db.saveClient(client)
         setState(s => ({ ...s, clients: [...s.clients, client] }))
         setSf(f => ({ ...f, clientId: client.id }))
         toast(`Cliente "${client.name}" creado`)
       }
       setQc(null); setQf({}); setQcError('')
     } catch (e) {
-      // No hay nada que revertir — nunca se guardó localmente
       setQcError('Error al guardar: ' + e.message)
     }
     setQcSaving(false)
@@ -3006,14 +3007,20 @@ function InventarioModule({ state, setState }) {
       })
     }
 
-    // Guardar movimientos y crear piezas trade
+    // Guardar movimientos y crear piezas trade — sesión-tolerante
     const savedMovs = []
+    const failedMovs = []
     try {
       for (const m of movimientosCalc) {
         const mov = { id: 'MOV' + uid(), socioId: m.socioId, fecha: tod(), tipo: m.tipo, monto: m.monto, concepto: m.concepto }
-        await db.saveMovimientoSocio(mov)
-        savedMovs.push(mov)
-        logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
+        try {
+          await db.saveMovimientoSocio(mov)
+          savedMovs.push(mov)
+          logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
+        } catch (movErr) {
+          console.error('[autoLiquidar] movimiento falló:', mov, movErr.message)
+          failedMovs.push({ ...mov, _error: movErr.message })
+        }
       }
 
       // Crear piezas trade-in en inventario
@@ -3030,12 +3037,16 @@ function InventarioModule({ state, setState }) {
           modoAdquisicion: 'aportacion', socioAportaId: tp.fondoAdquiere || null,
           splitPersonalizado: null, costos: []
         }
-        await db.saveWatch(nw)
-        newWatches.push(nw)
-        logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
+        try {
+          await db.saveWatch(nw)
+          newWatches.push(nw)
+          logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
+        } catch (wErr) {
+          console.error('[autoLiquidar] trade-in pieza falló:', nw, wErr.message)
+        }
       }
 
-      // Update local state
+      // Update local state with what actually saved
       setState(s => ({
         ...s,
         socios: s.socios.map(so => {
@@ -3045,7 +3056,11 @@ function InventarioModule({ state, setState }) {
         watches: newWatches.length > 0 ? [...s.watches, ...newWatches] : s.watches
       }))
 
-      setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad })
+      if (failedMovs.length > 0) {
+        toast(`⚠ Liquidación parcial — ${failedMovs.length} movimiento(s) no se guardaron. Cierra sesión y vuelve a entrar para re-liquidar.`, 'error')
+      }
+
+      setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad, pendientes: failedMovs })
     } catch (e) {
       toast('Error en liquidación automática: ' + e.message, 'error')
     }
@@ -6083,6 +6098,10 @@ export default function App() {
   const [dbLoading, setDbLoading]     = useState(false)
   const [page, setPage]               = useState('dashboard')
   const [appState, setAppState]       = useState({ ...DEMO })
+  const [sessionExpired, setSessionExpired] = useState(false)
+
+  // Wire session expiry banner to DB watchdog
+  useEffect(() => { _setSessionExpired = setSessionExpired; return () => { _setSessionExpired = null } }, [])
 
   // ── Load all data from Supabase ──────────────────────────────────────────
   const loadData = async () => {
@@ -6191,21 +6210,27 @@ export default function App() {
       setAuthLoading(false)
     })
 
-    // Listen for auth changes
+    // Listen for auth changes — including token refresh and expiry
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
         const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
+        setSessionExpired(false)
         if (p && p.role !== 'pending') {
           _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
-          logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
-          await loadData()
+          if (event === 'SIGNED_IN') {
+            logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
+            await loadData()
+          }
         }
       } else if (event === 'SIGNED_OUT') {
         logAction('logout', 'sistema', 'sesión', 'Cerró sesión')
         _auditUser = null
         setAuthUser(null); setProfile(null); setAppState({ ...DEMO })
+      } else if (event === 'USER_UPDATED') {
+        // Token auto-refreshed silently
+        setSessionExpired(false)
       }
     })
     return () => subscription.unsubscribe()
@@ -6322,7 +6347,7 @@ export default function App() {
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, letterSpacing: '.12em', fontWeight: 600, lineHeight: 1, marginTop: 1 }}>Wrist Room</div>
               </div>
             </div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v7.0</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v9.0</div>
           </div>
           <nav style={{ padding: '8px 0', flex: 1, overflowY: 'auto' }}>
             {allowedNav.map(item => {
@@ -6349,7 +6374,20 @@ export default function App() {
           </div>
         </div>
         {/* Main content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}><PageBoundary key={page}>{renderPage()}</PageBoundary></div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}>
+          {sessionExpired && (
+            <div style={{ background: RED + '18', border: `1px solid ${RED}44`, borderRadius: 6, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX, flex: 1 }}>
+                Tu sesión expiró — las operaciones pueden fallar.
+              </span>
+              <button onClick={logout} style={{ background: RED, border: 'none', color: TX, padding: '5px 14px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>
+                VOLVER A ENTRAR
+              </button>
+            </div>
+          )}
+          <PageBoundary key={page}>{renderPage()}</PageBoundary>
+        </div>
       </div>
       <ToastContainer />
     </>
