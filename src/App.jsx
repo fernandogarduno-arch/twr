@@ -1889,7 +1889,7 @@ function DashboardModule({ state }) {
             : 0
           // Piezas en sociedad (no son 100% TWR) — costo financiado
           const piezasConjuntas = watches.filter(w =>
-            w.stage !== 'baja' && w.modoAdquisicion !== 'twr'
+            w.stage !== 'baja' && w.stage !== 'liquidado' && w.modoAdquisicion !== 'twr'
           )
           const valorInventarioFernando = piezasConjuntas.reduce((a, w) => {
             const split = w.modoAdquisicion === 'aportacion' && w.socioAportaId === fernando?.id ? 1
