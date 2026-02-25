@@ -2842,18 +2842,33 @@ function InventarioModule({ state, setState }) {
 
   const confirmBajaPieza = async (razon) => {
     if (!selWatch) return
-    const updated = { ...selWatch, stage: 'baja', status: 'Baja', notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}` }
+    const updated = {
+      ...selWatch,
+      stage: 'baja',
+      status: 'Baja',
+      notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}`
+    }
+    // Optimistic UI update
     setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
     try {
-      await db.updateWatch(selWatch.id, { stage: 'baja', status: 'Baja', notes: updated.notes })
-      await db.savePiezaEdit({ piezaId: selWatch.id, campo: 'Baja', valorAntes: selWatch.stage, valorDespues: 'baja', editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario' })
+      // Usamos saveWatch (upsert) en lugar de updateWatch (update) para garantizar
+      // compatibilidad con políticas RLS que permiten INSERT/upsert pero no UPDATE directo.
+      await db.saveWatch(updated)
+      await db.savePiezaEdit({
+        piezaId: selWatch.id,
+        campo: 'Baja',
+        valorAntes: selWatch.stage,
+        valorDespues: 'baja',
+        editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario'
+      })
       logAction('delete', 'inventario', 'pieza', `Dio de baja pieza "${selWatch.serial || selWatch.id}" · Razón: ${razon}`, selWatch.id)
       toast('Pieza dada de baja · registrada en historial', 'info')
       setSelWatch(null)
       setShowBajaPieza(false)
     } catch(e) {
+      // Revert optimistic update on failure
       setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : selWatch) }))
-      toast('Error: ' + e.message, 'error')
+      toast('Error al dar de baja: ' + e.message, 'error')
     }
   }
 
