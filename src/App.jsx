@@ -81,7 +81,7 @@ const logAction = (action, module, entity, description, entityId = null) => {
 }
 
 // ── DB watchdog — timeout + console logging for every db call ──
-const DB_TIMEOUT_MS = 20000
+const DB_TIMEOUT_MS = 8000
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
@@ -3620,7 +3620,7 @@ function InventarioModule({ state, setState }) {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" small onClick={() => !watchSaving && setShowAdd(false)} disabled={watchSaving}>Cancelar</Btn>
             <Btn small onClick={saveWatch} disabled={!wf.refId || !wf.supplierId || watchSaving}>
-              {watchSaving ? 'Guardando...' : 'Registrar Pieza'}
+              {watchSaving ? '⏳ Guardando en Supabase...' : 'Registrar Pieza'}
             </Btn>
           </div>
         </Modal>
@@ -4193,6 +4193,155 @@ function ReportesModule({ state, setState }) {
             </table>
         }
       </div>
+
+      {/* ── HISTORIAL GENERAL DE OPERACIONES ── */}
+      {(() => {
+        // Build unified timeline from all event sources
+        const eventos = []
+
+        // 1. Aportaciones de capital
+        socios.forEach(s => {
+          ;(s.movimientos || []).forEach(m => {
+            const icon = { Aportación:'💵', Retiro:'💸', Distribución:'📤', Reinversión:'🔄', Recuperación:'↩️', Utilidad:'✨', 'Trade-In Adquisición':'🔄', Ajuste:'⚙️' }[m.tipo] || '📋'
+            const esEntrada = m.monto > 0
+            eventos.push({
+              fecha: m.fecha,
+              tipo: m.tipo,
+              icon,
+              titulo: m.concepto || m.tipo,
+              sub: s.name.includes('TWR') ? 'Fondo TWR' : `Fondo ${s.name.split(' ')[0]}`,
+              monto: m.monto,
+              color: esEntrada ? GRN : RED,
+              tag: m.tipo
+            })
+          })
+        })
+
+        // 2. Adquisiciones (entradas al inventario)
+        watches.filter(w => w.stage !== 'baja').forEach(w => {
+          const r = refs.find(x => x.id === w.refId)
+          const m = models.find(x => x.id === r?.modelId)
+          const b = brands.find(x => x.id === m?.brandId)
+          const label = [b?.name, m?.name, r?.ref].filter(Boolean).join(' ')
+          const esTradeIn = w.notes?.includes('Trade-In')
+          eventos.push({
+            fecha: w.entryDate,
+            tipo: esTradeIn ? 'Trade-In' : 'Adquisición',
+            icon: esTradeIn ? '🔄' : '📦',
+            titulo: label || w.id,
+            sub: w.serial ? `S/N ${w.serial}` : (w.stage === 'liquidado' ? 'Vendido' : 'En inventario'),
+            monto: -(w.cost || 0),
+            color: TM,
+            tag: esTradeIn ? 'Trade-In' : 'Adquisición'
+          })
+        })
+
+        // 3. Ventas
+        sales.forEach(s => {
+          const w = watches.find(x => x.id === s.watchId)
+          const r = refs.find(x => x.id === w?.refId)
+          const m = models.find(x => x.id === r?.modelId)
+          const b = brands.find(x => x.id === m?.brandId)
+          const label = [b?.name, m?.name, r?.ref].filter(Boolean).join(' ')
+          const ut = s.agreedPrice - (w?.cost || 0)
+          const hasTrade = (s.paymentMethods || []).some(p => p.tipo === 'trade_in')
+          eventos.push({
+            fecha: s.saleDate,
+            tipo: 'Venta',
+            icon: hasTrade ? '🔄💰' : '💰',
+            titulo: label || s.watchId,
+            sub: `Utilidad: ${ut >= 0 ? '+' : ''}${fmt(ut)} · ${s.status}${hasTrade ? ' · con Trade-In' : ''}`,
+            monto: s.agreedPrice,
+            color: GRN,
+            tag: 'Venta'
+          })
+        })
+
+        // Sort by date desc
+        eventos.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
+
+        const TAG_COLORS = {
+          'Adquisición': TM, 'Venta': GRN, 'Trade-In': BLU,
+          'Aportación': G, 'Retiro': RED, 'Distribución': RED,
+          'Reinversión': BLU, 'Recuperación': GRN, 'Utilidad': GRN, 'Ajuste': TM
+        }
+
+        // Filter state
+        const [filtro, setFiltro] = React.useState('todos')
+        const categorias = [
+          { id: 'todos', label: 'Todos' },
+          { id: 'Adquisición', label: '📦 Adquisiciones' },
+          { id: 'Venta', label: '💰 Ventas' },
+          { id: 'Trade-In', label: '🔄 Trade-In' },
+          { id: 'Aportación', label: '💵 Aportaciones' },
+          { id: 'Retiro', label: '💸 Retiros' },
+          { id: 'Utilidad', label: '✨ Utilidades' },
+        ]
+        const filtrados = filtro === 'todos' ? eventos : eventos.filter(e => e.tag === filtro)
+
+        return (
+          <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, marginBottom: 18 }}>
+            {/* Header */}
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BR}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>HISTORIAL DE OPERACIONES</span>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD }}>{filtrados.length} eventos</span>
+            </div>
+
+            {/* Filtros */}
+            <div style={{ padding: '10px 16px', borderBottom: `1px solid ${BR}`, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {categorias.map(c => (
+                <button key={c.id} onClick={() => setFiltro(c.id)}
+                  style={{ padding: '4px 10px', borderRadius: 3, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.06em',
+                    background: filtro === c.id ? G + '22' : S3,
+                    border: `1px solid ${filtro === c.id ? G : BR}`,
+                    color: filtro === c.id ? G : TM }}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tabla */}
+            {filtrados.length === 0
+              ? <div style={{ padding: 24, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Sin eventos en esta categoría</div>
+              : <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BR}` }}>
+                      {['Fecha', 'Tipo', 'Descripción', 'Monto'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '8px 16px', fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtrados.map((e, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${BR}11` }}
+                        onMouseEnter={ev => ev.currentTarget.style.background = S2}
+                        onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}>
+                        <td style={{ padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TD, whiteSpace: 'nowrap' }}>
+                          {e.fecha ? new Date(e.fecha + 'T12:00:00').toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 3,
+                            background: (TAG_COLORS[e.tag] || TM) + '18',
+                            border: `1px solid ${(TAG_COLORS[e.tag] || TM)}33`,
+                            fontFamily: "'DM Mono', monospace", fontSize: 9, color: TAG_COLORS[e.tag] || TM, letterSpacing: '.06em' }}>
+                            {e.icon} {e.tipo}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{e.titulo}</div>
+                          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 2 }}>{e.sub}</div>
+                        </td>
+                        <td style={{ padding: '10px 16px', fontFamily: "'DM Mono', monospace", fontSize: 12, color: e.color, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {e.monto > 0 ? '+' : ''}{fmt(e.monto)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+            }
+          </div>
+        )
+      })()}
 
       {/* Modal: retiro / reinversión manual */}
       {showRetiro && (
