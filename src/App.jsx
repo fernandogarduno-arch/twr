@@ -12,7 +12,7 @@ const sb = createClient(
       persistSession: true,
       storageKey: 'twr-auth-v4',
       detectSessionInUrl: true,
-      autoRefreshToken: true
+      lock: (_name, _acquireTimeout, fn) => fn()
     }
   }
 )
@@ -80,35 +80,12 @@ const logAction = (action, module, entity, description, entityId = null) => {
   }).then(() => {})  // intentionally silent — never throw
 }
 
-// ── Session ready flag — se activa DESPUÉS de que auth inicializa ──
-// Evita llamar getSession() durante el arranque y crear deadlock con el lock nativo
-let _sessionReady = false
-const markSessionReady = () => { _sessionReady = true }
-
-// Refresca token solo si la sesión ya está activa y está por expirar
-async function tryRefreshSession() {
-  if (!_sessionReady) return  // no interferir con el arranque
-  try {
-    const { data: { session } } = await sb.auth.getSession()
-    if (!session) return
-    const msToExpiry = (session.expires_at * 1000) - Date.now()
-    if (msToExpiry < 3 * 60 * 1000) {
-      console.log('[TWR AUTH] ⟳ Token próximo a expirar, refrescando...')
-      await sb.auth.refreshSession()
-      console.log('[TWR AUTH] ✓ Token renovado')
-    }
-  } catch(e) {
-    console.warn('[TWR AUTH] No se pudo refrescar sesión:', e.message)
-  }
-}
-
-// ── DB watchdog — timeout + session refresh + logging ──
-const DB_TIMEOUT_MS = 12000
+// ── DB watchdog — timeout + console logging for every db call ──
+const DB_TIMEOUT_MS = 8000
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
     console.log(`[TWR DB] ⏳ ${name}`, ...args.map(a => typeof a === 'object' ? JSON.stringify(a).slice(0,120) : a))
-    await tryRefreshSession()  // no-op durante arranque, activo solo con sesión establecida
     const timeout = new Promise((_, rej) =>
       setTimeout(() => rej(new Error(`[TWR DB] ⏰ TIMEOUT (${DB_TIMEOUT_MS/1000}s) en ${name} — verifica RLS y conexión`)), DB_TIMEOUT_MS)
     )
@@ -6225,7 +6202,6 @@ export default function App() {
         if (p && p.role !== 'pending') {
           _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
           await loadData()
-          markSessionReady()
         }
       }
       setAuthLoading(false)
@@ -6241,11 +6217,7 @@ export default function App() {
           _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
           logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
           await loadData()
-          markSessionReady()
         }
-      } else if (event === 'TOKEN_REFRESHED' && session) {
-        setAuthUser(session.user)
-        console.log('[TWR AUTH] ✓ Sesión renovada automáticamente')
       } else if (event === 'SIGNED_OUT') {
         logAction('logout', 'sistema', 'sesión', 'Cerró sesión')
         _auditUser = null
