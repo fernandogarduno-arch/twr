@@ -2632,6 +2632,7 @@ function InventarioModule({ state, setState }) {
   const quickCreate = async (type) => {
     if (qcSaving) return
     setQcError('')
+    try { await sb.auth.refreshSession() } catch (_) {}
 
     // ── Duplicate check ──────────────────────────────────────────────────────
     if (type === 'brand') {
@@ -4628,6 +4629,7 @@ function CatalogosModule({ state, setState }) {
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const saveBrand = async () => {
+    try { await sb.auth.refreshSession() } catch (_) {}
     if (saving) return
     setSaving(true)
     try {
@@ -4647,6 +4649,7 @@ function CatalogosModule({ state, setState }) {
   }
 
   const saveModel = async () => {
+    try { await sb.auth.refreshSession() } catch (_) {}
     if (saving) return
     setSaving(true)
     try {
@@ -4668,6 +4671,7 @@ function CatalogosModule({ state, setState }) {
   const saveRef = async () => {
     if (saving) return
     setSaving(true)
+    try { await sb.auth.refreshSession() } catch (_) {}
     try {
       if (editRef) {
         const updated = { ...editRef, ...rf, year: +rf.year }
@@ -5312,6 +5316,7 @@ function ContactosModule({ state, setState }) {
   const openEditProveedor = (p) => { setEditProveedor(p); setPf({ name: p.name, type: p.type || 'Particular', phone: p.phone || '', email: p.email || '', city: p.city || '', notes: p.notes || '', rating: p.rating || 3 }); setShowProveedorForm(true) }
 
   const saveCliente = async () => {
+    try { await sb.auth.refreshSession() } catch (_) {}
     setContactoSaving(true)
     try {
       if (editCliente) {
@@ -5353,6 +5358,7 @@ function ContactosModule({ state, setState }) {
   }
 
   const saveProveedor = async () => {
+    try { await sb.auth.refreshSession() } catch (_) {}
     setContactoSaving(true)
     try {
       if (editProveedor) {
