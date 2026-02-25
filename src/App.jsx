@@ -82,7 +82,6 @@ const logAction = (action, module, entity, description, entityId = null) => {
 
 // ── DB watchdog — timeout + console logging for every db call ──
 const DB_TIMEOUT_MS = 8000
-let _setSessionExpired = null  // set by App to propagate session expiry
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
@@ -96,8 +95,6 @@ function withTimeout(fn, name) {
       return result
     } catch(e) {
       console.error(`[TWR DB] ✗ ${name} (${Math.round(performance.now()-t0)}ms) →`, e.message)
-      // If it timed out, likely session expired — show banner
-      if (e.message.includes('TIMEOUT') && _setSessionExpired) _setSessionExpired(true)
       throw e
     }
   }
@@ -1537,7 +1534,7 @@ function ReasonModal({ title, subtitle, label = "Razón *", placeholder = "Escri
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
           <Btn variant="secondary" small onClick={onClose} disabled={saving}>Cancelar</Btn>
           <Btn small onClick={handleConfirm} disabled={!canConfirm || saving}
-            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? TX : TD, border:'none' }}>
+            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? WHITE : TD, border:'none' }}>
             {saving ? 'Procesando...' : confirmLabel}
           </Btn>
         </div>
@@ -1737,7 +1734,13 @@ function DashboardModule({ state }) {
   // Capital = suma de aportaciones de todos los socios
   const capital = socios.reduce((a, s) =>
     a + (s.movimientos || []).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
-  const utilidad = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) }, 0)
+  const utilidad = sales
+    .filter(s => s.status === 'Liquidado')
+    .reduce((a, s) => {
+      const w = watches.find(x => x.id === s.watchId)
+      const costosExtra = (w?.costos || []).reduce((x, c) => x + c.monto, 0)
+      return a + (s.agreedPrice - ((w?.cost || 0) + costosExtra))
+    }, 0)
   const porCobrar = sales.filter(s => s.status !== 'Liquidado').reduce((a, s) => { const c = (s.payments || []).reduce((x, p) => x + p.amount, 0); return a + (s.agreedPrice - c) }, 0)
   const valorInventario = inv.reduce((a, w) => a + (w.cost || 0), 0)
 
@@ -1779,6 +1782,10 @@ function DashboardModule({ state }) {
   // Total Inversión = capital en piezas activas + efectivo disponible en fondos
   // capital = todas las entradas positivas (aportaciones + recuperaciones de ventas + utilidades)
   // efectivo real = capital - retiros ya realizados - lo que está inmovilizado en piezas
+  // v10: capitalFlujo = todas las entradas positivas MENOS todas las salidas negativas
+  // Esto incluye: Aportaciones + Recuperaciones + Utilidades - Retiros - Adquisiciones
+  // Si los movimientos de Adquisición existen (fix v10), la fórmula cuadra automáticamente:
+  // cash real = aportado - retirado - gastado_en_piezas + recuperado_de_ventas + utilidades
   const totalRetiros    = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0), 0)
   const capitalFlujo   = Math.max(0, capital - totalRetiros)
   const totalInversion = capitalFlujo + valorInventario
@@ -1803,7 +1810,7 @@ function DashboardModule({ state }) {
             <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:11, color:TM, letterSpacing:'.35em', textTransform:'uppercase' }}>The</span>
             <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:28, color:TX, letterSpacing:'.1em', fontWeight:600 }}>Wrist Room</span>
           </div>
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginTop: 2, letterSpacing: '.08em' }}>{new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}</div>
+          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginTop: 2, letterSpacing: '.08em' }}>{new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()} · v10</div>
         </div>
       </div>
 
@@ -2660,42 +2667,60 @@ function InventarioModule({ state, setState }) {
       }
     }
 
-    // ── Create — Supabase first, local only on confirm ──────────────────────
+    // ── Create ───────────────────────────────────────────────────────────────
     setQcSaving(true)
+    let created = null
+    let createdType = null
     try {
       if (type === 'brand') {
         const brand = { id: 'B' + uid(), name: qf.name.trim(), country: qf.country || 'Suiza', founded: qf.founded || null, notes: '' }
-        await db.saveBrand(brand)
+        created = brand; createdType = 'brand'
         setState(s => ({ ...s, brands: [...s.brands, brand] }))
         setWf(f => ({ ...f, _brandId: brand.id, _modelId: '', refId: '' }))
+        await db.saveBrand(brand)
         toast(`Marca "${brand.name}" creada`)
       } else if (type === 'model') {
         const model = { id: 'M' + uid(), brandId: wf._brandId, name: qf.name.trim(), family: qf.family || '', notes: '' }
-        await db.saveModel(model)
+        created = model; createdType = 'model'
         setState(s => ({ ...s, models: [...s.models, model] }))
         setWf(f => ({ ...f, _modelId: model.id, refId: '' }))
+        await db.saveModel(model)
         toast(`Modelo "${model.name}" creado`)
       } else if (type === 'ref') {
         const ref = { id: 'R' + uid(), modelId: wf._modelId, ref: qf.ref.trim(), caliber: qf.caliber || '', material: qf.material || 'Acero', bezel: qf.bezel || '', dial: qf.dial || '', size: qf.size || '', bracelet: '', year: +qf.year || null, notes: '' }
-        await db.saveRef(ref)
+        created = ref; createdType = 'ref'
         setState(s => ({ ...s, refs: [...s.refs, ref] }))
         setWf(f => ({ ...f, refId: ref.id }))
+        await db.saveRef(ref)
         toast(`Referencia "${ref.ref}" creada`)
       } else if (type === 'supplier') {
         const supplier = { id: 'P' + uid(), name: qf.name.trim(), type: qf.type || 'Particular', phone: qf.phone || '', email: '', city: '', notes: '', rating: 3, totalDeals: 0 }
-        await db.saveSupplier(supplier)
+        created = supplier; createdType = 'supplier'
         setState(s => ({ ...s, suppliers: [...s.suppliers, supplier] }))
         setWf(f => ({ ...f, supplierId: supplier.id }))
+        await db.saveSupplier(supplier)
         toast(`Proveedor "${supplier.name}" creado`)
       } else if (type === 'client') {
         const client = { id: 'C' + uid(), name: qf.name.trim(), phone: qf.phone || '', email: '', city: '', tier: 'Prospecto', notes: '', totalSpent: 0, totalPurchases: 0 }
-        await db.saveClient(client)
+        created = client; createdType = 'client'
         setState(s => ({ ...s, clients: [...s.clients, client] }))
         setSf(f => ({ ...f, clientId: client.id }))
+        await db.saveClient(client)
         toast(`Cliente "${client.name}" creado`)
       }
       setQc(null); setQf({}); setQcError('')
     } catch (e) {
+      // Rollback optimistic update
+      if (created && createdType) {
+        setState(s => ({
+          ...s,
+          brands:    createdType === 'brand'    ? s.brands.filter(x => x.id !== created.id)    : s.brands,
+          models:    createdType === 'model'    ? s.models.filter(x => x.id !== created.id)    : s.models,
+          refs:      createdType === 'ref'      ? s.refs.filter(x => x.id !== created.id)      : s.refs,
+          suppliers: createdType === 'supplier' ? s.suppliers.filter(x => x.id !== created.id) : s.suppliers,
+          clients:   createdType === 'client'   ? s.clients.filter(x => x.id !== created.id)   : s.clients,
+        }))
+      }
       setQcError('Error al guardar: ' + e.message)
     }
     setQcSaving(false)
@@ -2720,53 +2745,72 @@ function InventarioModule({ state, setState }) {
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
     const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceDealer: +wf.priceDealer || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [], fuenteFondos: wf.fuenteFondos || 'flujo' }
 
-    // ── Movimiento contable automático ──────────────────────────────────────
-    // Solo para modo aportacion (cuando sabemos qué socio financia la pieza)
-    let movContable = null
-    if (wf.modoAdquisicion === 'aportacion' && wf.socioAportaId && watch.cost > 0) {
-      if (wf.fuenteFondos === 'flujo') {
-        // Flujo → Piezas: sale del efectivo disponible del fondo (movimiento negativo)
-        movContable = {
-          id: 'MOV' + uid(), socioId: wf.socioAportaId,
-          fecha: wf.entryDate || tod(), tipo: 'Adquisición',
-          monto: -watch.cost,
-          concepto: `Adquisición · ${watch.serial || id} · del flujo disponible`
-        }
-      } else {
-        // Aportación adicional: entra capital nuevo (movimiento positivo)
-        movContable = {
+    // ── Movimientos contables automáticos ──────────────────────────────────
+    // v10: siempre se generan movimientos para mantener contabilidad cuadrada.
+    // REGLA: registrar pieza desde flujo = Adquisición negativa por fondo.
+    //        registrar pieza como nueva aportación = Aportación positiva.
+    // Sin movimiento = capital inflado (bug v9).
+    const movimientosContables = []
+
+    if (watch.cost > 0 && stage !== 'oportunidad') {
+      if (wf.modoAdquisicion === 'aportacion' && wf.socioAportaId && wf.fuenteFondos === 'aportacion') {
+        // Nueva aportación: entra capital NUEVO al fondo (positivo)
+        movimientosContables.push({
           id: 'MOV' + uid(), socioId: wf.socioAportaId,
           fecha: wf.entryDate || tod(), tipo: 'Aportación',
           monto: +watch.cost,
           concepto: `Aportación adicional · ${watch.serial || id}`
+        })
+      } else {
+        // Adquisición desde flujo existente: sale efectivo de cada fondo según split
+        // Aplica para: sociedad (split global), aportacion+flujo (100% socio), twr (100% TWR), personalizado
+        const split = getFondoSplit(watch) // {socioId: pct, ...}
+        for (const [socioId, pct] of Object.entries(split)) {
+          if (!pct) continue
+          movimientosContables.push({
+            id: 'MOV' + uid(), socioId,
+            fecha: wf.entryDate || tod(), tipo: 'Adquisición',
+            monto: -(watch.cost * pct / 100),
+            concepto: `Adquisición${pct < 100 ? ` (${pct}%)` : ''} · ${watch.serial || id}`
+          })
         }
       }
     }
 
-    // Optimistic update
+    // Optimistic update — aplica todos los movimientos al estado local
     setState(s => ({
       ...s,
       watches: [...s.watches, watch],
-      socios: movContable
-        ? s.socios.map(so => so.id !== movContable.socioId ? so : { ...so, movimientos: [...(so.movimientos || []), movContable] })
-        : s.socios
+      socios: s.socios.map(so => {
+        const movs = movimientosContables.filter(m => m.socioId === so.id)
+        return movs.length > 0
+          ? { ...so, movimientos: [...(so.movimientos || []), ...movs] }
+          : so
+      })
     }))
 
     try {
       await db.saveWatch(watch)
-      if (movContable) await db.saveMovimientoSocio(movContable)
-      logAction('create', 'inventario', 'pieza', `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)} · ${wf.fuenteFondos === 'flujo' ? 'del flujo' : 'aportación nueva'}`, watch.id)
-      toast(`Pieza registrada · ${wf.fuenteFondos === 'flujo' ? '💵 Flujo → Piezas' : '➕ Nueva aportación registrada'}`)
+      for (const m of movimientosContables) {
+        await db.saveMovimientoSocio(m)
+      }
+      const esNuevaAportacion = wf.modoAdquisicion === 'aportacion' && wf.fuenteFondos === 'aportacion'
+      logAction('create', 'inventario', 'pieza',
+        `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)} · ${esNuevaAportacion ? 'nueva aportación' : 'del flujo'}`,
+        watch.id)
+      toast(`Pieza registrada · ${esNuevaAportacion ? '➕ Capital nuevo registrado' : '💵 Flujo redistribuido correctamente'}`)
       setShowAdd(false)
       setWf({ ...blank })
     } catch (e) {
-      // Rollback
+      // Rollback — remueve pieza y movimientos del estado local
+      const movIds = new Set(movimientosContables.map(m => m.id))
       setState(s => ({
         ...s,
         watches: s.watches.filter(w => w.id !== id),
-        socios: movContable
-          ? s.socios.map(so => so.id !== movContable.socioId ? so : { ...so, movimientos: (so.movimientos || []).filter(m => m.id !== movContable.id) })
-          : s.socios
+        socios: s.socios.map(so => ({
+          ...so,
+          movimientos: (so.movimientos || []).filter(m => !movIds.has(m.id))
+        }))
       }))
       toast('Error al registrar pieza: ' + e.message, 'error')
     } finally {
@@ -3007,20 +3051,14 @@ function InventarioModule({ state, setState }) {
       })
     }
 
-    // Guardar movimientos y crear piezas trade — sesión-tolerante
+    // Guardar movimientos y crear piezas trade
     const savedMovs = []
-    const failedMovs = []
     try {
       for (const m of movimientosCalc) {
         const mov = { id: 'MOV' + uid(), socioId: m.socioId, fecha: tod(), tipo: m.tipo, monto: m.monto, concepto: m.concepto }
-        try {
-          await db.saveMovimientoSocio(mov)
-          savedMovs.push(mov)
-          logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
-        } catch (movErr) {
-          console.error('[autoLiquidar] movimiento falló:', mov, movErr.message)
-          failedMovs.push({ ...mov, _error: movErr.message })
-        }
+        await db.saveMovimientoSocio(mov)
+        savedMovs.push(mov)
+        logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
       }
 
       // Crear piezas trade-in en inventario
@@ -3037,16 +3075,12 @@ function InventarioModule({ state, setState }) {
           modoAdquisicion: 'aportacion', socioAportaId: tp.fondoAdquiere || null,
           splitPersonalizado: null, costos: []
         }
-        try {
-          await db.saveWatch(nw)
-          newWatches.push(nw)
-          logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
-        } catch (wErr) {
-          console.error('[autoLiquidar] trade-in pieza falló:', nw, wErr.message)
-        }
+        await db.saveWatch(nw)
+        newWatches.push(nw)
+        logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
       }
 
-      // Update local state with what actually saved
+      // Update local state
       setState(s => ({
         ...s,
         socios: s.socios.map(so => {
@@ -3056,11 +3090,7 @@ function InventarioModule({ state, setState }) {
         watches: newWatches.length > 0 ? [...s.watches, ...newWatches] : s.watches
       }))
 
-      if (failedMovs.length > 0) {
-        toast(`⚠ Liquidación parcial — ${failedMovs.length} movimiento(s) no se guardaron. Cierra sesión y vuelve a entrar para re-liquidar.`, 'error')
-      }
-
-      setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad, pendientes: failedMovs })
+      setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad })
     } catch (e) {
       toast('Error en liquidación automática: ' + e.message, 'error')
     }
@@ -3620,7 +3650,7 @@ function InventarioModule({ state, setState }) {
                 <option value="personalizado">📊 Split Personalizado</option>
               </select>
             </Field>
-            {wf.modoAdquisicion === 'aportacion' && (
+          {wf.modoAdquisicion === 'aportacion' && (
               <Field label="Socio que aporta">
                 <select value={wf.socioAportaId || ''} onChange={e => setWf(f => ({ ...f, socioAportaId: e.target.value }))} style={selStyle}>
                   <option value="">— Seleccionar —</option>
@@ -3647,6 +3677,17 @@ function InventarioModule({ state, setState }) {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+          {/* v10: para sociedad/twr/personalizado, siempre es del flujo — mostrar aviso */}
+          {['sociedad', 'twr', 'personalizado'].includes(wf.modoAdquisicion) && wf.cost && +wf.cost > 0 && (
+            <div style={{ background: BLU + '11', border: `1px solid ${BLU}33`, borderRadius: 4, padding: '8px 14px', marginBottom: 12,
+                          fontFamily: "'DM Mono', monospace", fontSize: 9, color: BLU, letterSpacing: '.08em' }}>
+              🔄 FLUJO → PIEZAS ·{' '}
+              {wf.modoAdquisicion === 'sociedad' && (state?.socios || []).map(s => `${s.name.split(' ')[0]} ${s.participacion}%`).join(' / ')}
+              {wf.modoAdquisicion === 'twr' && 'Fondo TWR 100%'}
+              {wf.modoAdquisicion === 'personalizado' && 'Split personalizado'}
+              {' · '}El efectivo se redistribuye en inventario. Capital total sin cambio.
             </div>
           )}
           {wf.modoAdquisicion === 'personalizado' && (
@@ -4084,8 +4125,8 @@ function ReportesModule({ state, setState }) {
   const { watches, sales, socios, brands, models, refs } = state
 
   // ── Cálculos base ─────────────────────────────────────────────────────────
-  const utilidad   = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0) - (w?.costos || []).reduce((x, c) => x + c.monto, 0)) }, 0)
-  const margenProm = sales.length > 0 ? (sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) / s.agreedPrice * 100 }, 0) / sales.length).toFixed(1) : 0
+  const utilidad   = sales.filter(s => s.status === 'Liquidado').reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0) - (w?.costos || []).reduce((x, c) => x + c.monto, 0)) }, 0)
+  const margenProm = sales.filter(s => s.status === 'Liquidado').length > 0 ? (sales.filter(s => s.status === 'Liquidado').reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) / s.agreedPrice * 100 }, 0) / sales.filter(s => s.status === 'Liquidado').length).toFixed(1) : 0
 
   // ── Flujo de capital ────────────────────────────────────────────────────────
   // Entradas = aportaciones + recuperaciones de ventas + utilidades registradas
@@ -6098,10 +6139,6 @@ export default function App() {
   const [dbLoading, setDbLoading]     = useState(false)
   const [page, setPage]               = useState('dashboard')
   const [appState, setAppState]       = useState({ ...DEMO })
-  const [sessionExpired, setSessionExpired] = useState(false)
-
-  // Wire session expiry banner to DB watchdog
-  useEffect(() => { _setSessionExpired = setSessionExpired; return () => { _setSessionExpired = null } }, [])
 
   // ── Load all data from Supabase ──────────────────────────────────────────
   const loadData = async () => {
@@ -6210,27 +6247,21 @@ export default function App() {
       setAuthLoading(false)
     })
 
-    // Listen for auth changes — including token refresh and expiry
+    // Listen for auth changes
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+      if (event === 'SIGNED_IN' && session) {
         const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
         setAuthUser(session.user)
         setProfile(p || { role: 'pending', name: session.user.email })
-        setSessionExpired(false)
         if (p && p.role !== 'pending') {
           _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
-          if (event === 'SIGNED_IN') {
-            logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
-            await loadData()
-          }
+          logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
+          await loadData()
         }
       } else if (event === 'SIGNED_OUT') {
         logAction('logout', 'sistema', 'sesión', 'Cerró sesión')
         _auditUser = null
         setAuthUser(null); setProfile(null); setAppState({ ...DEMO })
-      } else if (event === 'USER_UPDATED') {
-        // Token auto-refreshed silently
-        setSessionExpired(false)
       }
     })
     return () => subscription.unsubscribe()
@@ -6347,7 +6378,7 @@ export default function App() {
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, letterSpacing: '.12em', fontWeight: 600, lineHeight: 1, marginTop: 1 }}>Wrist Room</div>
               </div>
             </div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v9.0</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.2em', paddingLeft: 42 }}>TWR OS · v7.0</div>
           </div>
           <nav style={{ padding: '8px 0', flex: 1, overflowY: 'auto' }}>
             {allowedNav.map(item => {
@@ -6374,20 +6405,7 @@ export default function App() {
           </div>
         </div>
         {/* Main content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}>
-          {sessionExpired && (
-            <div style={{ background: RED + '18', border: `1px solid ${RED}44`, borderRadius: 6, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 16 }}>⚠️</span>
-              <span style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX, flex: 1 }}>
-                Tu sesión expiró — las operaciones pueden fallar.
-              </span>
-              <button onClick={logout} style={{ background: RED, border: 'none', color: TX, padding: '5px 14px', borderRadius: 4, fontFamily: "'DM Mono', monospace", fontSize: 9, cursor: 'pointer', letterSpacing: '.08em' }}>
-                VOLVER A ENTRAR
-              </button>
-            </div>
-          )}
-          <PageBoundary key={page}>{renderPage()}</PageBoundary>
-        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}><PageBoundary key={page}>{renderPage()}</PageBoundary></div>
       </div>
       <ToastContainer />
     </>
