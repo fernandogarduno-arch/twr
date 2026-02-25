@@ -1885,7 +1885,7 @@ function DashboardModule({ state }) {
           // Fernando financia todo — valor de su posición = efectivo aportado + costo de piezas conjuntas
           const fernando = socios.find(s => s.name.toLowerCase().includes('fernando'))
           const aporteEfectivo = fernando
-            ? (fernando.movimientos || []).filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
+            ? (fernando.movimientos || []).filter(m => m.tipo === 'Aportación').reduce((a, m) => a + m.monto, 0)
             : 0
           // Piezas en sociedad (no son 100% TWR) — costo financiado
           const piezasConjuntas = watches.filter(w =>
