@@ -2852,6 +2852,7 @@ function InventarioModule({ state, setState }) {
   // ── Guardar edición de pieza con confirmación y audit trail ──
   const saveEdit = async () => {
     if (editSaving || !selWatch) return
+    try { await sb.auth.refreshSession() } catch (_) {}
     // Build diff — only changed fields
     const LABELS = { serial:'Número de Serie', condition:'Condición', cost:'Costo', priceDealer:'Precio Dealer', priceAsked:'Precio Público', entryDate:'Fecha Ingreso', notes:'Notas', fullSet:'Full Set', papers:'Papeles', box:'Caja' }
     const diffs = Object.entries(editForm).filter(([k, v]) => {
@@ -2902,11 +2903,16 @@ function InventarioModule({ state, setState }) {
 
   const confirmBajaPieza = async (razon) => {
     if (!selWatch) return
+    // Refresh sesión antes de escribir
+    try { await sb.auth.refreshSession() } catch (_) {}
     const updated = { ...selWatch, stage: 'baja', status: 'Baja', notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}` }
     setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
     try {
       await db.updateWatch(selWatch.id, { stage: 'baja', status: 'Baja', notes: updated.notes })
-      await db.savePiezaEdit({ piezaId: selWatch.id, campo: 'Baja', valorAntes: selWatch.stage, valorDespues: 'baja', editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario' })
+      // savePiezaEdit es secundario — no bloquear la baja si falla
+      try {
+        await db.savePiezaEdit({ piezaId: selWatch.id, campo: 'Baja', valorAntes: selWatch.stage, valorDespues: 'baja', editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario' })
+      } catch(_) {}
       logAction('delete', 'inventario', 'pieza', `Dio de baja pieza "${selWatch.serial || selWatch.id}" · Razón: ${razon}`, selWatch.id)
       toast('Pieza dada de baja · registrada en historial', 'info')
       setSelWatch(null)
