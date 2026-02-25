@@ -215,8 +215,13 @@ const db = {
     const { error } = await sb.from('ventas').upsert({
       id: v.id, pieza_id: v.watchId, cliente_id: v.clientId,
       sale_date: v.saleDate, agreed_price: v.agreedPrice,
-      status: v.status, notes: v.notes || null
+      status: v.status, notes: v.notes || null,
+      payment_methods: v.paymentMethods || []
     })
+    if (error) throw new Error(error.message)
+  },
+  async updatePaymentMethods(ventaId, methods) {
+    const { error } = await sb.from('ventas').update({ payment_methods: methods }).eq('id', ventaId)
     if (error) throw new Error(error.message)
   },
 
@@ -229,7 +234,8 @@ const db = {
   async savePago(p) {
     const { error } = await sb.from('pagos').upsert({
       id: p.id, venta_id: p.ventaId, date: p.date,
-      amount: p.amount, method: p.method, notes: p.notes || null
+      amount: p.amount, method: p.method, notes: p.notes || null,
+      fondo_origen: p.fondoOrigen || null
     })
     if (error) throw new Error(error.message)
   },
@@ -2422,6 +2428,199 @@ IMPORTANTE: Solo URLs de CDN de tiendas (cdn.chrono24.com, watchfinder.co.uk, bo
   )
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  PAYMENT METHODS EDITOR — formas de pago mixtas con trade-in
+// ══════════════════════════════════════════════════════════════════════════════
+function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios, brands, models, refs, suppliers }) {
+  const fondos = socios.map(s => ({ id: s.id, label: s.name.includes('TWR') ? 'Fondo TWR' : `Fondo ${s.name.split(' ')[0]}` }))
+  const defaultFondo = socios.find(s => !s.name.includes('TWR'))?.id || socios[0]?.id
+
+  const addMethod = (tipo) => {
+    const base = { id: 'PM' + Date.now(), tipo, fondoDestino: defaultFondo, notas: '' }
+    if (tipo === 'efectivo' || tipo === 'electronico') onChange([...methods, { ...base, monto: '' }])
+    else onChange([...methods, { ...base, monto: '', fondoAdquiere: defaultFondo, piezas: [] }])
+  }
+
+  const removeMethod = (id) => onChange(methods.filter(m => m.id !== id))
+  const updateMethod = (id, patch) => onChange(methods.map(m => m.id === id ? { ...m, ...patch } : m))
+
+  const addTradePieza = (methodId) => {
+    const blank = { tempId: 'TI' + Date.now(), _brandId: '', _modelId: '', refId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: false, papers: false, box: false, cost: '', priceDealer: '', priceAsked: '', fondoAdquiere: defaultFondo, notas: '' }
+    onChange(methods.map(m => m.id === methodId ? { ...m, piezas: [...(m.piezas||[]), blank] } : m))
+  }
+  const removeTradePieza = (methodId, tempId) => onChange(methods.map(m => m.id === methodId ? { ...m, piezas: (m.piezas||[]).filter(p => p.tempId !== tempId) } : m))
+  const updateTradePieza = (methodId, tempId, patch) => onChange(methods.map(m => m.id === methodId ? { ...m, piezas: (m.piezas||[]).map(p => p.tempId === tempId ? { ...p, ...patch } : p) } : m))
+
+  const totalCubierto = methods.reduce((a, m) => {
+    if (m.tipo === 'efectivo' || m.tipo === 'electronico') return a + (+m.monto || 0)
+    if (m.tipo === 'trade_in') return a + (m.piezas||[]).reduce((x, p) => x + (+p.cost||0), 0)
+    return a
+  }, 0)
+  const diferencia = (agreedPrice || 0) - totalCubierto
+  const completo = Math.abs(diferencia) < 1
+
+  const inputS = { background: S3, border:`1px solid ${BR}`, color:TX, padding:'8px 12px', borderRadius:4, fontFamily:"'Jost',sans-serif", fontSize:13, width:'100%', outline:'none', boxSizing:'border-box' }
+  const labelS = { fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, letterSpacing:'.1em', textTransform:'uppercase', display:'block', marginBottom:4 }
+
+  const tipoIcon = { efectivo:'💵', electronico:'💳', trade_in:'🔄' }
+  const tipoLabel = { efectivo:'Efectivo', electronico:'Electrónico / Transferencia', trade_in:'Trade-In' }
+
+  return (
+    <div>
+      {/* Botones agregar forma de pago */}
+      <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
+        {['efectivo','electronico','trade_in'].map(tipo => (
+          <button key={tipo} onClick={() => addMethod(tipo)}
+            style={{ background:S3, border:`1px solid ${BR}`, color:TM, padding:'5px 12px', borderRadius:3, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.08em' }}>
+            + {tipoIcon[tipo]} {tipoLabel[tipo].toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* Filas de pago */}
+      {methods.map(m => (
+        <div key={m.id} style={{ background:S3, borderRadius:5, padding:'10px 12px', marginBottom:8, border:`1px solid ${BR}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: m.tipo==='trade_in' ? 10 : 0 }}>
+            <span style={{ fontSize:14 }}>{tipoIcon[m.tipo]}</span>
+            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, letterSpacing:'.1em', flex:1 }}>{tipoLabel[m.tipo].toUpperCase()}</span>
+            <button onClick={() => removeMethod(m.id)} style={{ background:'none', border:'none', color:RED, cursor:'pointer', fontSize:14 }}>×</button>
+          </div>
+
+          {(m.tipo === 'efectivo' || m.tipo === 'electronico') && (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <div>
+                <label style={labelS}>Monto (MXN)</label>
+                <input type="number" value={m.monto} onChange={e => updateMethod(m.id, { monto: e.target.value })}
+                  placeholder="0" style={inputS} />
+              </div>
+              <div>
+                <label style={labelS}>Fondo que recibe</label>
+                <select value={m.fondoDestino} onChange={e => updateMethod(m.id, { fondoDestino: e.target.value })} style={inputS}>
+                  {fondos.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {m.tipo === 'trade_in' && (
+            <>
+              {/* Piezas trade-in */}
+              {(m.piezas||[]).map((p, pi) => {
+                const brandOpts = brands
+                const modelOpts = models.filter(mo => mo.brandId === p._brandId)
+                const refOpts = refs.filter(r => r.modelId === p._modelId)
+                const selRef = refs.find(r => r.id === p.refId)
+                // Store labels for later display
+                const bLabel = brands.find(b => b.id === p._brandId)?.name || ''
+                const mLabel = models.find(mo => mo.id === p._modelId)?.name || ''
+                return (
+                  <div key={p.tempId} style={{ background:S2, borderRadius:4, padding:10, marginBottom:8, border:`1px solid ${BR}` }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, letterSpacing:'.1em' }}>⌚ PIEZA {pi+1}</span>
+                      <button onClick={() => removeTradePieza(m.id, p.tempId)} style={{ background:'none', border:'none', color:RED, cursor:'pointer', fontSize:12 }}>× Quitar</button>
+                    </div>
+                    {/* Brand/Model/Ref */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
+                      <div>
+                        <label style={labelS}>Marca *</label>
+                        <select value={p._brandId} onChange={e => updateTradePieza(m.id, p.tempId, { _brandId: e.target.value, _modelId: '', refId: '', _marcaLabel: brands.find(b=>b.id===e.target.value)?.name||'' })} style={inputS}>
+                          <option value="">— Marca —</option>
+                          {brandOpts.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={labelS}>Modelo *</label>
+                        <select value={p._modelId} onChange={e => updateTradePieza(m.id, p.tempId, { _modelId: e.target.value, refId: '', _modeloLabel: models.find(mo=>mo.id===e.target.value)?.name||'' })} disabled={!p._brandId} style={inputS}>
+                          <option value="">— Modelo —</option>
+                          {modelOpts.map(mo => <option key={mo.id} value={mo.id}>{mo.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={labelS}>Referencia *</label>
+                        <select value={p.refId} onChange={e => updateTradePieza(m.id, p.tempId, { refId: e.target.value })} disabled={!p._modelId} style={inputS}>
+                          <option value="">— Ref —</option>
+                          {refOpts.map(r => <option key={r.id} value={r.id}>{r.ref} · {r.material}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {/* Serial + Condition */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:6 }}>
+                      <div>
+                        <label style={labelS}>Serial</label>
+                        <input value={p.serial} onChange={e => updateTradePieza(m.id, p.tempId, { serial: e.target.value })} placeholder="S/N" style={inputS} />
+                      </div>
+                      <div>
+                        <label style={labelS}>Condición</label>
+                        <select value={p.condition} onChange={e => updateTradePieza(m.id, p.tempId, { condition: e.target.value })} style={inputS}>
+                          {['Mint','Excelente','Muy Bueno','Bueno','Regular'].map(x => <option key={x}>{x}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {/* Prices */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
+                      <div>
+                        <label style={labelS}>Costo / Valor trade *</label>
+                        <input type="number" value={p.cost} onChange={e => updateTradePieza(m.id, p.tempId, { cost: e.target.value })} placeholder="0" style={{ ...inputS, border:`1px solid ${G}66` }} />
+                      </div>
+                      <div>
+                        <label style={labelS}>Precio Dealer</label>
+                        <input type="number" value={p.priceDealer} onChange={e => updateTradePieza(m.id, p.tempId, { priceDealer: e.target.value })} placeholder="0" style={inputS} />
+                      </div>
+                      <div>
+                        <label style={labelS}>Precio Público</label>
+                        <input type="number" value={p.priceAsked} onChange={e => updateTradePieza(m.id, p.tempId, { priceAsked: e.target.value })} placeholder="0" style={inputS} />
+                      </div>
+                    </div>
+                    {/* Fondo + accesorios */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                      <div>
+                        <label style={labelS}>Fondo que adquiere</label>
+                        <select value={p.fondoAdquiere} onChange={e => updateTradePieza(m.id, p.tempId, { fondoAdquiere: e.target.value })} style={inputS}>
+                          {fondos.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
+                        {[['fullSet','Full Set'],['papers','Papers'],['box','Box']].map(([k,l]) => (
+                          <label key={k} style={{ display:'flex', alignItems:'center', gap:4, marginRight:10, fontFamily:"'Jost',sans-serif", fontSize:11, color:TM, cursor:'pointer' }}>
+                            <input type="checkbox" checked={!!p[k]} onChange={e => updateTradePieza(m.id, p.tempId, { [k]: e.target.checked })} style={{ accentColor:G }} />{l}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              <button onClick={() => addTradePieza(m.id)}
+                style={{ width:'100%', padding:'7px 0', background:G+'11', border:`1px dashed ${G}44`, borderRadius:4, color:G, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.1em' }}>
+                + AGREGAR PIEZA TRADE-IN
+              </button>
+            </>
+          )}
+        </div>
+      ))}
+
+      {/* Totalizador */}
+      {methods.length > 0 && (
+        <div style={{ background: completo ? GRN+'11' : S3, border:`1px solid ${completo?GRN:BR}44`, borderRadius:4, padding:'10px 14px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:completo?GRN:TM, letterSpacing:'.1em' }}>
+              {completo ? '✓ CUBIERTO' : 'CUBIERTO'}
+            </span>
+            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:completo?GRN:TX }}>
+              {fmt(totalCubierto)} / {fmt(agreedPrice||0)}
+            </span>
+          </div>
+          {!completo && Math.abs(diferencia) > 0 && (
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color: diferencia>0?RED:BLU, marginTop:4 }}>
+              {diferencia > 0 ? `↓ Falta cubrir: ${fmt(diferencia)}` : `↑ Excede por: ${fmt(Math.abs(diferencia))} (TWR paga diferencia al cliente)`}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function InventarioModule({ state, setState }) {
   const { watches, sales, socios, brands, models, refs, suppliers, clients } = state
   const [view, setView]         = useState('pipeline')
@@ -2435,14 +2634,12 @@ function InventarioModule({ state, setState }) {
   const [editForm, setEditForm]   = useState({})
   const [editSaving, setEditSaving] = useState(false)
   const [showBajaPieza, setShowBajaPieza] = useState(false)
-  const [showDecision, setShowDecision] = useState(null)
-  const [decisionMap, setDecisionMap]   = useState({})
-  const [decisionSaving, setDecisionSaving] = useState(false)
+  const [showLiquidacion, setShowLiquidacion] = useState(null) // { sale, watch, movimientos, tradePiezas }
   const [aiLoading, setAiLoading] = useState(false)  // bloquea cierre durante verificación IA
 
   const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceDealer: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
   const [wf, setWf] = useState({ ...blank })
-  const [sf, setSf] = useState({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
+  const [sf, setSf] = useState({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '', paymentMethods: [] })
   const [pf, setPf] = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
   const [showAddCosto, setShowAddCosto] = useState(false)
   const [costoForm, setCostoForm] = useState({ tipo: '', fecha: tod(), monto: '', descripcion: '' })
@@ -2704,13 +2901,26 @@ function InventarioModule({ state, setState }) {
     }
   }
 
+  // ── Helpers de fondos ──────────────────────────────────────────────────────
+  const fondoName = (id) => {
+    const s = socios.find(x => x.id === id)
+    return s ? (s.name.includes('TWR') ? 'Fondo TWR' : `Fondo ${s.name.split(' ')[0]}`) : id
+  }
+  const getFondoSplit = (watch) => {
+    // Returns {socioId: pct} for who owns this piece
+    if (!watch) return {}
+    if (watch.modoAdquisicion === 'twr') return socios.reduce((a, s) => ({ ...a, [s.id]: s.name.includes('TWR') ? 100 : 0 }), {})
+    if (watch.modoAdquisicion === 'aportacion') return socios.reduce((a, s) => ({ ...a, [s.id]: s.id === watch.socioAportaId ? 100 : 0 }), {})
+    if (watch.modoAdquisicion === 'personalizado' && watch.splitPersonalizado) return watch.splitPersonalizado
+    return socios.reduce((a, s) => ({ ...a, [s.id]: s.participacion }), {})
+  }
+
   const saveSale = async () => {
     if (watchSaving) return
     setWatchSaving(true)
     const id = 'S' + uid()
     const sale = { ...sf, id, watchId: selWatch.id, agreedPrice: +sf.agreedPrice, payments: [], status: 'Pendiente' }
     const prevWatchState = { status: selWatch.status, stage: selWatch.stage }
-    // Optimistic update
     setState(s => ({
       ...s,
       watches: s.watches.map(x => x.id !== selWatch.id ? x : { ...x, status: 'Vendido', stage: 'liquidado' }),
@@ -2720,12 +2930,11 @@ function InventarioModule({ state, setState }) {
     try {
       await db.updateWatchStage(selWatch.id, 'liquidado', 'Vendido')
       await db.saveVenta(sale)
-      logAction('create', 'ventas', 'venta', `Registró venta por ${fmt(sale.agreedPrice)}`, sale.id)
+      logAction('create', 'ventas', 'venta', `Registró venta por ${fmt(sale.agreedPrice)} · ${sale.paymentMethods?.length ? sale.paymentMethods.map(m=>m.tipo).join('+') : 'sin forma'}`, sale.id)
       toast('Venta registrada correctamente')
       setShowSale(false)
-      setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '' })
+      setSf({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '', paymentMethods: [] })
     } catch (e) {
-      // Rollback
       setState(s => ({
         ...s,
         watches: s.watches.map(x => x.id !== selWatch.id ? x : { ...x, ...prevWatchState }),
@@ -2758,18 +2967,14 @@ function InventarioModule({ state, setState }) {
       const newStatus = newTotal >= (sale?.agreedPrice || 0) ? 'Liquidado' : newTotal > 0 ? 'Parcial' : 'Pendiente'
       await db.savePago(pago)
       await db.updateVentaStatus(saleId, newStatus)
-      logAction('create', 'ventas', 'pago', `Registró pago ${fmt(pago.amount)} · ${pago.method} (Inventario)`, saleId)
+      logAction('create', 'ventas', 'pago', `Registró pago ${fmt(pago.amount)} · ${pago.method}`, saleId)
       toast('Pago registrado')
       setShowPay(null)
       setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
-      // Si la venta quedó liquidada → mostrar modal de decisión de fondos
       if (newStatus === 'Liquidado') {
-        const saleObj = state.sales.find(s => s.id === saleId)
+        const saleObj = { ...sale, payments: [...(sale?.payments || []), pago], status: 'Liquidado' }
         const watchObj = watches.find(w => w.id === saleObj?.watchId)
-        const initMap = {}
-        socios.forEach(s => { initMap[s.id] = 'reinvertir' })
-        setDecisionMap(initMap)
-        setShowDecision({ sale: saleObj, watch: watchObj })
+        autoLiquidar(saleObj, watchObj)
       }
     } catch (e) {
       setState(s => ({ ...s, sales: prevSales }))
@@ -2778,49 +2983,97 @@ function InventarioModule({ state, setState }) {
     setWatchSaving(false)
   }
 
-  // Decisión post-liquidado: reinvertir vs retirar por socio
-  const getSplitDecision = (watch) => {
-    if (!watch) return {}
-    if (watch.modoAdquisicion === 'twr') return socios.reduce((a, s) => ({ ...a, [s.id]: s.name.includes('TWR') ? 100 : 0 }), {})
-    if (watch.modoAdquisicion === 'aportacion') return socios.reduce((a, s) => ({ ...a, [s.id]: s.id === watch.socioAportaId ? 100 : 0 }), {})
-    if (watch.modoAdquisicion === 'personalizado' && watch.splitPersonalizado) return watch.splitPersonalizado
-    return socios.reduce((a, s) => ({ ...a, [s.id]: s.participacion }), {})
-  }
+  // ── Liquidación automática al completar pago ────────────────────────────
+  const autoLiquidar = async (sale, watch) => {
+    if (!sale || !watch) return
+    const split = getFondoSplit(watch)
+    const costo = watch.cost || 0
+    const costosExtra = (watch.costos || []).reduce((a, c) => a + c.monto, 0)
+    const costoTotal = costo + costosExtra
+    const utilidad = sale.agreedPrice - costoTotal
 
-  const saveDecision = async () => {
-    if (!showDecision || decisionSaving) return
-    setDecisionSaving(true)
-    const { sale, watch } = showDecision
-    const split = getSplitDecision(watch)
-    const movimientos = []
-    try {
+    // Piezas trade-in recibidas en la venta
+    const tradePMs = (sale.paymentMethods || []).filter(pm => pm.tipo === 'trade_in')
+    const tradePiezas = tradePMs.flatMap(pm => (pm.piezas || []).map(p => ({ ...p, fondoAdquiere: pm.fondoAdquiere || socios.find(s => s.name.includes('TWR') ? false : true)?.id })))
+
+    const movimientosCalc = []
+
+    // 1. Recuperación de costo por fondo propietario
+    for (const [socioId, pct] of Object.entries(split)) {
+      if (!pct) continue
+      const montoRecup = costoTotal * pct / 100
+      movimientosCalc.push({
+        socioId, tipo: 'Recuperación',
+        monto: montoRecup,
+        concepto: `Recuperación costo · ${watch.serial || sale.watchId}`
+      })
+    }
+
+    // 2. Utilidad: siempre split global 40/60
+    if (utilidad > 0) {
       for (const socio of socios) {
-        const pct = split[socio.id] || 0
-        if (pct === 0) continue
-        const decision = decisionMap[socio.id] || 'reinvertir'
-        // Monto que le corresponde a este socio = su % del precio de venta (recupera inversión + utilidad)
-        const montoSocio = sale.agreedPrice * pct / 100
-        const tipo = decision === 'reinvertir' ? 'Reinversión' : 'Retiro'
-        const monto = decision === 'reinvertir' ? montoSocio : -montoSocio
-        const mov = { id: 'MOV' + uid(), socioId: socio.id, fecha: tod(), tipo, monto, concepto: `${tipo} · venta ${watch?.serial || sale.watchId}` }
-        movimientos.push({ mov, socioId: socio.id })
-        await db.saveMovimientoSocio(mov)
-        logAction('create', 'reportes', 'movimiento', `${tipo} ${fmt(Math.abs(monto))} · ${socio.name}`, sale.id)
+        const montoUtil = utilidad * socio.participacion / 100
+        movimientosCalc.push({
+          socioId: socio.id, tipo: 'Utilidad',
+          monto: montoUtil,
+          concepto: `Utilidad (${socio.participacion}%) · ${watch.serial || sale.watchId}`
+        })
       }
-      // Actualizar estado local
+    }
+
+    // 3. Trade-in: descontar del fondo que adquiere cada pieza
+    for (const tp of tradePiezas) {
+      if (!tp.fondoAdquiere || !tp.cost) continue
+      movimientosCalc.push({
+        socioId: tp.fondoAdquiere, tipo: 'Trade-In Adquisición',
+        monto: -tp.cost,
+        concepto: `Trade-In: ${tp._marcaLabel || ''} ${tp._modeloLabel || ''} · ${tp.serial || 'S/N'}`
+      })
+    }
+
+    // Guardar movimientos y crear piezas trade
+    const savedMovs = []
+    try {
+      for (const m of movimientosCalc) {
+        const mov = { id: 'MOV' + uid(), socioId: m.socioId, fecha: tod(), tipo: m.tipo, monto: m.monto, concepto: m.concepto }
+        await db.saveMovimientoSocio(mov)
+        savedMovs.push(mov)
+        logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
+      }
+
+      // Crear piezas trade-in en inventario
+      const newWatches = []
+      for (const tp of tradePiezas) {
+        if (!tp.refId) continue
+        const nw = {
+          id: 'W' + uid(), refId: tp.refId, supplierId: tp.supplierId || null,
+          serial: tp.serial || '', condition: tp.condition || 'Muy Bueno',
+          fullSet: tp.fullSet || false, papers: tp.papers || false, box: tp.box || false,
+          cost: tp.cost || 0, priceDealer: tp.priceDealer || 0, priceAsked: tp.priceAsked || 0,
+          entryDate: tod(), status: 'Disponible', stage: 'inventario',
+          notes: `Trade-In · Venta ${sale.id}${tp.notas ? ' · ' + tp.notas : ''}`,
+          modoAdquisicion: 'aportacion', socioAportaId: tp.fondoAdquiere || null,
+          splitPersonalizado: null, costos: []
+        }
+        await db.saveWatch(nw)
+        newWatches.push(nw)
+        logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
+      }
+
+      // Update local state
       setState(s => ({
         ...s,
         socios: s.socios.map(so => {
-          const movs = movimientos.filter(m => m.socioId === so.id).map(m => m.mov)
+          const movs = savedMovs.filter(m => m.socioId === so.id)
           return movs.length > 0 ? { ...so, movimientos: [...(so.movimientos || []), ...movs] } : so
-        })
+        }),
+        watches: newWatches.length > 0 ? [...s.watches, ...newWatches] : s.watches
       }))
-      toast('Decisión de fondos registrada')
-      setShowDecision(null)
+
+      setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad })
     } catch (e) {
-      toast('Error al registrar decisión: ' + e.message, 'error')
+      toast('Error en liquidación automática: ' + e.message, 'error')
     }
-    setDecisionSaving(false)
   }
 
   const selRef      = selWatch ? refs.find(r => r.id === selWatch.refId) : null
@@ -3194,7 +3447,7 @@ function InventarioModule({ state, setState }) {
 
       {/* SALE FORM */}
       {showSale && selWatch && (
-        <Modal title="Registrar Venta" onClose={() => !watchSaving && setShowSale(false)} width={520} blocking={watchSaving}>
+        <Modal title="Registrar Venta" onClose={() => !watchSaving && setShowSale(false)} width={600} blocking={watchSaving}>
           {/* Resumen de precios */}
           <div style={{ background: S3, borderRadius: 4, padding: '12px 14px', marginBottom: 16 }}>
             <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 16, color: TX, marginBottom: 8 }}>{selBrand?.name} {selModel?.name} · {selRef?.ref}</div>
@@ -3219,26 +3472,92 @@ function InventarioModule({ state, setState }) {
               onClickCreate={() => { setQc('client'); setQf({}); setQcError(''); setQcSaving(false) }} createLabel="Nuevo cliente" />
             <Field label="Fecha"><input type="date" value={sf.saleDate} onChange={e => setSf(f => ({ ...f, saleDate: e.target.value }))} style={inputStyle} /></Field>
           </FR>
-          <FR cols={1}><Field label="Precio de venta (MXN) *" required>
+          <FR cols={1}><Field label="Precio acordado (MXN) *" required>
             <input type="number" value={sf.agreedPrice} onChange={e => setSf(f => ({ ...f, agreedPrice: e.target.value }))} placeholder="0" style={{ ...inputStyle, border: `1px solid ${G}66`, fontSize: 15 }} />
             {sf.agreedPrice && selWatch.cost > 0 && (
               <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, marginTop: 5, display:'flex', gap:16 }}>
-                <span style={{ color: GRN }}>Utilidad: +{fmt(+sf.agreedPrice - selWatch.cost)} ({((+sf.agreedPrice - selWatch.cost) / selWatch.cost * 100).toFixed(1)}%)</span>
-                {selWatch.priceAsked > 0 && +sf.agreedPrice < selWatch.priceAsked && (
-                  <span style={{ color: RED }}>↓ {fmt(selWatch.priceAsked - +sf.agreedPrice)} bajo precio público</span>
-                )}
-                {selWatch.priceDealer > 0 && +sf.agreedPrice < selWatch.priceDealer && (
-                  <span style={{ color: RED }}>⚠ bajo precio dealer</span>
-                )}
+                <span style={{ color: GRN }}>Utilidad bruta: +{fmt(+sf.agreedPrice - selWatch.cost)} ({((+sf.agreedPrice - selWatch.cost) / selWatch.cost * 100).toFixed(1)}%)</span>
+                {selWatch.priceAsked > 0 && +sf.agreedPrice < selWatch.priceAsked && <span style={{ color: RED }}>↓ bajo precio público</span>}
               </div>
             )}
           </Field></FR>
+
+          {/* ── FORMA DE PAGO ── */}
+          <Divider label="FORMA DE PAGO" />
+          <PaymentMethodsEditor
+            methods={sf.paymentMethods || []}
+            onChange={pm => setSf(f => ({ ...f, paymentMethods: pm }))}
+            agreedPrice={+sf.agreedPrice || 0}
+            socios={socios}
+            brands={brands} models={models} refs={refs} suppliers={suppliers}
+          />
+
+          <Field label="Notas" style={{ marginTop: 10 }}>
+            <input value={sf.notes} onChange={e => setSf(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones de la venta..." style={inputStyle} />
+          </Field>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
             <Btn variant="secondary" small onClick={() => setShowSale(false)} disabled={watchSaving}>Cancelar</Btn>
             <Btn small onClick={saveSale} disabled={!sf.clientId || !sf.agreedPrice || watchSaving}>{watchSaving ? 'Guardando...' : 'Registrar Venta'}</Btn>
           </div>
         </Modal>
       )}
+
+      {/* ── MODAL LIQUIDACIÓN AUTOMÁTICA ── */}
+      {showLiquidacion && (() => {
+        const { sale, watch, movimientos, tradePiezas, utilidad } = showLiquidacion
+        return (
+          <Modal title="✓ Venta Liquidada · Resumen de Fondos" onClose={() => setShowLiquidacion(null)} width={480}>
+            <div style={{ background:GRN+'11', border:`1px solid ${GRN}33`, borderRadius:4, padding:'10px 14px', marginBottom:14 }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:GRN, letterSpacing:'.1em' }}>PRECIO DE VENTA</div>
+              <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:GRN }}>{fmt(sale.agreedPrice)}</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginTop:2 }}>
+                {watch?.serial ? `S/N ${watch.serial} · ` : ''} Utilidad bruta: {utilidad >= 0 ? '+' : ''}{fmt(utilidad)}
+              </div>
+            </div>
+
+            {/* Movimientos por fondo */}
+            {socios.map(s => {
+              const movs = movimientos.filter(m => m.socioId === s.id)
+              if (!movs.length) return null
+              const label = s.name.includes('TWR') ? 'Fondo TWR' : `Fondo ${s.name.split(' ')[0]}`
+              const total = movs.reduce((a, m) => a + m.monto, 0)
+              return (
+                <div key={s.id} style={{ background:S3, borderRadius:4, padding:'10px 14px', marginBottom:8, border:`1px solid ${BR}` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:s.color||TM, letterSpacing:'.1em' }}>{label.toUpperCase()}</span>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:total>=0?GRN:RED }}>{total>=0?'+':''}{fmt(total)}</span>
+                  </div>
+                  {movs.map((m,i) => (
+                    <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', borderTop: i>0?`1px solid ${BR}`:'' }}>
+                      <span style={{ fontFamily:"'Jost',sans-serif", fontSize:11, color:TM }}>{m.concepto}</span>
+                      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:m.monto>=0?GRN:RED }}>{m.monto>=0?'+':''}{fmt(m.monto)}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+
+            {/* Piezas trade creadas */}
+            {tradePiezas?.length > 0 && (
+              <div style={{ background:BLU+'11', border:`1px solid ${BLU}33`, borderRadius:4, padding:'10px 14px', marginBottom:8 }}>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:BLU, letterSpacing:'.1em', marginBottom:6 }}>⌚ PIEZAS INGRESADAS AL INVENTARIO</div>
+                {tradePiezas.map((w,i) => {
+                  const r = refs.find(x => x.id === w.refId)
+                  const m = models.find(x => x.id === r?.modelId)
+                  const b = brands.find(x => x.id === m?.brandId)
+                  return (
+                    <div key={i} style={{ fontFamily:"'Jost',sans-serif", fontSize:12, color:TX, padding:'2px 0' }}>
+                      ✓ {b?.name} {m?.name} {r?.ref} · {fmt(w.cost)} · {fondoName(w.socioAportaId)}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <Btn onClick={() => setShowLiquidacion(null)} style={{ width:'100%', marginTop:4 }}>Cerrar</Btn>
+          </Modal>
+        )
+      })()}
 
       {/* ADD WATCH */}
       {showAdd && (
@@ -3584,55 +3903,6 @@ function InventarioModule({ state, setState }) {
         />
       )}
 
-      {/* Modal decisión post-liquidado */}
-      {showDecision && (() => {
-        const { sale, watch } = showDecision
-        const split = getSplitDecision(watch)
-        const sociosInvolucrados = socios.filter(s => (split[s.id] || 0) > 0)
-        return (
-          <Modal title="✓ Venta Liquidada · Decisión de Fondos" onClose={() => !decisionSaving && setShowDecision(null)} width={500} blocking={decisionSaving}>
-            <div style={{ background: GRN+'11', border: `1px solid ${GRN}33`, borderRadius: 4, padding: '10px 14px', marginBottom: 16 }}>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: GRN, letterSpacing: '.1em' }}>TOTAL RECUPERADO</div>
-              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, color: GRN }}>{fmt(sale?.agreedPrice || 0)}</div>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 2 }}>{watch?.serial ? `S/N ${watch.serial} ·` : ''} ¿Qué hacemos con los fondos de cada socio?</div>
-            </div>
-
-            {sociosInvolucrados.map(s => {
-              const pct = split[s.id] || 0
-              const monto = (sale?.agreedPrice || 0) * pct / 100
-              const decision = decisionMap[s.id] || 'reinvertir'
-              return (
-                <div key={s.id} style={{ background: S2, border: `1px solid ${BR}`, borderRadius: 5, padding: 14, marginBottom: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{s.name}</div>
-                      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>{pct}% · {fmt(monto)}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {[
-                      { val: 'reinvertir', icon: '🔄', label: 'Reinvertir', sub: 'Queda en caja para próxima compra', color: BLU },
-                      { val: 'retirar',    icon: '💸', label: 'Retirar',    sub: 'Sale del fondo al socio',           color: G },
-                    ].map(opt => (
-                      <button key={opt.val} onClick={() => setDecisionMap(m => ({ ...m, [s.id]: opt.val }))}
-                        style={{ background: decision === opt.val ? opt.color + '22' : S3, border: `2px solid ${decision === opt.val ? opt.color : BR}`, borderRadius: 5, padding: '10px 12px', cursor: 'pointer', textAlign: 'left', transition: 'all .15s' }}>
-                        <div style={{ fontSize: 16, marginBottom: 4 }}>{opt.icon}</div>
-                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: decision === opt.val ? opt.color : TX, fontWeight: 600, letterSpacing: '.08em' }}>{opt.label}</div>
-                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, marginTop: 2 }}>{opt.sub}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              <Btn small variant="secondary" onClick={() => setShowDecision(null)} disabled={decisionSaving}>Decidir después</Btn>
-              <Btn small onClick={saveDecision} disabled={decisionSaving}>{decisionSaving ? 'Registrando...' : 'Confirmar decisión'}</Btn>
-            </div>
-          </Modal>
-        )
-      })()}
     </div>
   )
 }
@@ -3811,23 +4081,21 @@ function ReportesModule({ state, setState }) {
   const margenProm = sales.length > 0 ? (sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) / s.agreedPrice * 100 }, 0) / sales.length).toFixed(1) : 0
 
   // ── Capital Global ─────────────────────────────────────────────────────────
-  // Piezas activas (inventario + oportunidades)
-  const capitalEnPiezas  = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja').reduce((a, w) => a + (w.cost || 0), 0)
-  // Efectivo = aportaciones totales - retiros/distribuciones - costo de piezas activas + recuperaciones reinvertidas
-  const totalAportaciones = socios.reduce((a, s) => a + (s.movimientos || []).filter(m => m.tipo === 'Aportación' || m.tipo === 'Reinversión').reduce((x, m) => x + m.monto, 0), 0)
-  const totalRetiros      = socios.reduce((a, s) => a + (s.movimientos || []).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0), 0)
-  const capitalEnEfectivo = Math.max(0, totalAportaciones - totalRetiros - capitalEnPiezas)
-  const capitalGlobal     = capitalEnPiezas + capitalEnEfectivo
+  const capitalEnPiezas   = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja').reduce((a, w) => a + (w.cost || 0), 0)
+  const capitalGlobal     = capitalEnPiezas + socios.reduce((a, s) => {
+    const entradas = (s.movimientos || []).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0)
+    const salidas  = (s.movimientos || []).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0)
+    return a + Math.max(0, entradas - salidas)
+  }, 0)
 
-  // ── Distribución a socios ─────────────────────────────────────────────────
-  const distInv = socios.map(s => {
-    const dist = (s.movimientos || []).filter(m => m.monto < 0).reduce((a, m) => a + Math.abs(m.monto), 0)
-    const corr  = utilidad * s.participacion / 100
-    // Caja efectivo de este socio
-    const aportS   = (s.movimientos || []).filter(m => m.tipo === 'Aportación' || m.tipo === 'Reinversión').reduce((a, m) => a + m.monto, 0)
-    const retirosS = (s.movimientos || []).filter(m => m.monto < 0).reduce((a, m) => a + Math.abs(m.monto), 0)
-    // Piezas financiadas por este socio
-    const piezasS  = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja' && (
+  // ── Por Fondo (Fernando vs TWR) ────────────────────────────────────────────
+  const calcFondo = (s) => {
+    const movs = s.movimientos || []
+    const entradas   = movs.filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
+    const retiros    = movs.filter(m => m.tipo === 'Retiro' || m.tipo === 'Distribución').reduce((a, m) => a + Math.abs(m.monto), 0)
+    const retirables = movs.filter(m => m.tipo === 'Utilidad').reduce((a, m) => a + m.monto, 0)
+    // Piezas financiadas por este fondo
+    const piezas = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja' && (
       w.modoAdquisicion === 'aportacion' ? w.socioAportaId === s.id :
       w.modoAdquisicion === 'twr' ? s.name.includes('TWR') : true
     )).reduce((a, w) => a + (w.cost || 0) * (
@@ -3835,9 +4103,14 @@ function ReportesModule({ state, setState }) {
       w.modoAdquisicion === 'twr' ? (s.name.includes('TWR') ? 1 : 0) :
       s.participacion / 100
     ), 0)
-    const efectivoS = Math.max(0, aportS - retirosS - piezasS)
-    return { ...s, dist, corr, pend: corr - dist, piezasS, efectivoS }
-  })
+    const efectivo = Math.max(0, entradas - retiros - piezas)
+    const label = s.name.includes('TWR') ? 'Fondo TWR' : `Fondo ${s.name.split(' ')[0]}`
+    return { ...s, label, entradas, retiros, retirables, piezas, efectivo, total: piezas + efectivo }
+  }
+  const fondos = socios.map(calcFondo)
+
+  // ── Distribución a socios (legacy compat) ────────────────────────────────
+  const distInv = fondos.map(f => ({ ...f, dist: f.retiros, corr: utilidad * f.participacion / 100, pend: 0, piezasS: f.piezas, efectivoS: f.efectivo }))
 
   // ── Modal retiro manual ───────────────────────────────────────────────────
   const [showRetiro, setShowRetiro] = useState(null) // socio
@@ -3883,32 +4156,62 @@ function ReportesModule({ state, setState }) {
         <KPI label="Margen Promedio" value={`${margenProm}%`} accent={TM} />
       </div>
 
-      {/* Capital Global */}
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, marginBottom: 18 }}>
-        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>CAPITAL GLOBAL</div>
-        <div style={{ padding: 18 }}>
-          {/* Barra visual */}
-          <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 16, gap: 2 }}>
-            {capitalGlobal > 0 && <>
-              <div style={{ background: G, width: `${capitalEnPiezas/capitalGlobal*100}%`, transition: 'width .5s' }} />
-              <div style={{ background: BLU, width: `${capitalEnEfectivo/capitalGlobal*100}%`, transition: 'width .5s' }} />
-            </>}
-            {capitalGlobal === 0 && <div style={{ background: BR, width: '100%' }} />}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-            {[
-              { label: '⌚ EN PIEZAS',   value: fmt(capitalEnPiezas),   sub: 'Capital invertido en inventario',  color: G },
-              { label: '💵 EN EFECTIVO', value: fmt(capitalEnEfectivo), sub: 'Disponible para reinversión',      color: BLU },
-              { label: '= TOTAL',        value: fmt(capitalGlobal),     sub: 'Exposición total del fondo',       color: TX },
-            ].map(({ label, value, sub, color }) => (
-              <div key={label} style={{ background: S2, borderRadius: 4, padding: '12px 14px' }}>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em', marginBottom: 6 }}>{label}</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 18, color, fontWeight: 700 }}>{value}</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TD, marginTop: 4 }}>{sub}</div>
+      {/* ── FONDOS DE CAPITAL ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:18 }}>
+        {fondos.map(f => (
+          <div key={f.id} style={{ background:S1, border:`2px solid ${f.color || BR}33`, borderRadius:6 }}>
+            {/* Header fondo */}
+            <div style={{ padding:'12px 16px', borderBottom:`1px solid ${BR}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:f.color||TM, letterSpacing:'.12em' }}>{f.label.toUpperCase()}</div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TD, marginTop:2 }}>{f.participacion}% utilidades</div>
               </div>
-            ))}
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:16, color:TX }}>{fmt(f.total)}</div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD }}>TOTAL FONDO</div>
+              </div>
+            </div>
+            {/* Barra piezas vs efectivo */}
+            <div style={{ padding:'10px 16px 0' }}>
+              <div style={{ display:'flex', height:5, borderRadius:3, overflow:'hidden', gap:1, marginBottom:10 }}>
+                {f.total > 0 ? <>
+                  <div style={{ background:G, width:`${f.piezas/f.total*100}%`, transition:'width .5s' }} />
+                  <div style={{ background:BLU, width:`${f.efectivo/f.total*100}%`, transition:'width .5s' }} />
+                </> : <div style={{ background:BR, width:'100%' }} />}
+              </div>
+            </div>
+            {/* Grid de métricas */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, padding:'0 12px 12px' }}>
+              {[
+                { label:'⌚ EN PIEZAS', value:fmt(f.piezas), color:G },
+                { label:'💵 EFECTIVO',  value:fmt(f.efectivo), color:BLU },
+                { label:'✓ RETIRABLE', value:fmt(f.retirables), color:GRN },
+              ].map(({ label,value,color }) => (
+                <div key={label} style={{ background:S2, borderRadius:4, padding:'8px 10px' }}>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:7, color:TD, letterSpacing:'.1em', marginBottom:3 }}>{label}</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color, fontWeight:600 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            {/* Historial reciente */}
+            {(f.movimientos || []).length > 0 && (
+              <div style={{ padding:'0 12px 12px' }}>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', marginBottom:5 }}>ÚLTIMOS MOVIMIENTOS</div>
+                {[...(f.movimientos||[])].reverse().slice(0,3).map(m => (
+                  <div key={m.id} style={{ display:'flex', justifyContent:'space-between', padding:'4px 8px', background:S3, borderRadius:3, marginBottom:3 }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM }}><span style={{ color: m.monto>0?GRN:RED }}>{m.tipo}</span> · {m.concepto?.substring(0,30) || '—'}</div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:m.monto>0?GRN:RED }}>{m.monto>0?'+':''}{fmt(m.monto)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ padding:'0 12px 12px' }}>
+              <Btn small variant="ghost" style={{ width:'100%' }} onClick={() => { setShowRetiro(f); setRetiroForm({ monto:'', concepto:'', tipo:'Retiro' }) }}>
+                + Registrar Movimiento
+              </Btn>
+            </div>
           </div>
-        </div>
+        ))}
       </div>
 
       {/* Ventas */}
@@ -3917,18 +4220,19 @@ function ReportesModule({ state, setState }) {
         {sales.length === 0
           ? <div style={{ padding: 24, textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TD }}>Sin ventas registradas</div>
           : <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Reloj', 'Costo', 'Precio Venta', 'Utilidad', 'Margen', 'Pago'].map(h => <th key={h} style={{ textAlign: 'left', padding: '9px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
+              <thead><tr style={{ borderBottom: `1px solid ${BR}` }}>{['Reloj', 'Costo', 'Precio Venta', 'Utilidad', 'Forma Pago', 'Status'].map(h => <th key={h} style={{ textAlign: 'left', padding: '9px 14px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em', fontWeight: 400 }}>{h}</th>)}</tr></thead>
               <tbody>
                 {sales.map(s => {
                   const w = watches.find(x => x.id === s.watchId), r = refs.find(r => r.id === w?.refId), m = models.find(m => m.id === r?.modelId), b = brands.find(b => b.id === m?.brandId)
-                  const ut = s.agreedPrice - (w?.cost || 0), mrg = (ut / s.agreedPrice * 100).toFixed(1)
+                  const ut = s.agreedPrice - (w?.cost || 0)
+                  const tiposLabel = (s.paymentMethods||[]).map(p => p.tipo === 'trade_in' ? '🔄' : p.tipo === 'efectivo' ? '💵' : '💳').join(' ') || '—'
                   return (
                     <tr key={s.id} style={{ borderBottom: `1px solid ${BR}` }} onMouseEnter={e => e.currentTarget.style.background = S2} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ padding: '11px 14px', fontFamily: "'Jost', sans-serif", fontSize: 13, color: TX }}>{b?.name} {m?.name}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{fmt(w?.cost || 0)}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{fmt(s.agreedPrice)}</td>
                       <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: GRN }}>+{fmt(ut)}</td>
-                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: G }}>{mrg}%</td>
+                      <td style={{ padding: '11px 14px', fontFamily: "'DM Mono', monospace", fontSize: 11, color: TM }}>{tiposLabel}</td>
                       <td style={{ padding: '11px 14px' }}><Badge label={s.status} color={s.status === 'Liquidado' ? GRN : RED} small /></td>
                     </tr>
                   )
@@ -3936,58 +4240,6 @@ function ReportesModule({ state, setState }) {
               </tbody>
             </table>
         }
-      </div>
-
-      {/* Distribución y caja por socio */}
-      <div style={{ background: S1, border: `1px solid ${BR}`, borderRadius: 6, marginBottom: 18 }}>
-        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }}>POSICIÓN POR SOCIO</div>
-        <div style={{ padding: 18 }}>
-          {distInv.map((inv, idx) => (
-            <div key={inv.id} style={{ marginBottom: idx < distInv.length - 1 ? 18 : 0, paddingBottom: idx < distInv.length - 1 ? 18 : 0, borderBottom: idx < distInv.length - 1 ? `1px solid ${BR}` : 'none' }}>
-              {/* Cabecera socio */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 14, color: TX }}>{inv.name}</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>{inv.participacion}% utilidades · {inv.modoAdquisicion !== 'twr' ? 'Inversionista' : 'Gestor'}</div>
-                </div>
-                <Btn small variant="ghost" onClick={() => { setShowRetiro(inv); setRetiroForm({ monto: '', concepto: '', tipo: 'Retiro' }) }}>
-                  + Movimiento
-                </Btn>
-              </div>
-
-              {/* Grid 2x2: caja + utilidades */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                {[
-                  { label: '⌚ EN PIEZAS',      value: fmt(inv.piezasS),  color: G,   tip: 'Costo de piezas que financia' },
-                  { label: '💵 EFECTIVO',        value: fmt(inv.efectivoS), color: BLU, tip: 'Aportaciones − retiros − piezas' },
-                  { label: '✓ UTILIDAD CORR.',   value: fmt(inv.corr),     color: GRN, tip: `${inv.participacion}% de ventas cerradas` },
-                  { label: '⏳ PENDIENTE',        value: fmt(inv.pend),     color: inv.pend > 0 ? G : GRN, tip: 'Por distribuir' },
-                ].map(({ label, value, color, tip }) => (
-                  <div key={label} style={{ background: S2, borderRadius: 4, padding: '10px 12px' }}>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.1em', marginBottom: 4 }}>{label}</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color, fontWeight: 600 }}>{value}</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, marginTop: 3 }}>{tip}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Historial reciente de movimientos */}
-              {(inv.movimientos || []).length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.1em', marginBottom: 6 }}>ÚLTIMOS MOVIMIENTOS</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    {[...(inv.movimientos || [])].reverse().slice(0, 4).map(m => (
-                      <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: S3, borderRadius: 3 }}>
-                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM }}>{fmtD(m.fecha)} · <span style={{ color: m.monto > 0 ? GRN : RED }}>{m.tipo}</span> · {m.concepto || '—'}</div>
-                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: m.monto > 0 ? GRN : RED }}>{m.monto > 0 ? '+' : ''}{fmt(m.monto)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* Modal: retiro / reinversión manual */}
@@ -5725,8 +5977,10 @@ export default function App() {
         id: v.id, watchId: v.pieza_id, clientId: v.cliente_id,
         saleDate: v.sale_date, agreedPrice: v.agreed_price,
         status: v.status, notes: v.notes,
+        paymentMethods: v.payment_methods || [],
         payments: (pagosList || []).filter(p => p.venta_id === v.id).map(p => ({
-          id: p.id, date: p.date, amount: p.amount, method: p.method, notes: p.notes
+          id: p.id, date: p.date, amount: p.amount, method: p.method, notes: p.notes,
+          fondoOrigen: p.fondo_origen || null
         }))
       })
       const mapSocio  = (s, movsList) => ({
