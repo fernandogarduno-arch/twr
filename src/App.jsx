@@ -1534,7 +1534,7 @@ function ReasonModal({ title, subtitle, label = "Razón *", placeholder = "Escri
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
           <Btn variant="secondary" small onClick={onClose} disabled={saving}>Cancelar</Btn>
           <Btn small onClick={handleConfirm} disabled={!canConfirm || saving}
-            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? WHITE : TD, border:'none' }}>
+            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? TX : TD, border:'none' }}>
             {saving ? 'Procesando...' : confirmLabel}
           </Btn>
         </div>
