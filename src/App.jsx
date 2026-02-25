@@ -1924,11 +1924,11 @@ function DashboardModule({ state }) {
 
                 {/* Total exposición */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em' }}>EXPOSICIÓN TOTAL</div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, letterSpacing: '.12em' }}>APORTACIONES ACUMULADAS</div>
                   <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color: TX, fontWeight: 700 }}>{fmt(totalExposicion)}</div>
                 </div>
                 <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 8, color: TD, marginTop: 6, letterSpacing: '.08em' }}>
-                  TWR Capital recibe {100 - (fernando?.participacion || 40)}% de utilidades al cierre
+                  Histórico de capital comprometido en el fondo
                 </div>
               </div>
             </div>
@@ -4232,6 +4232,7 @@ function ReportesModule({ state, setState }) {
   const saveRetiro = async () => {
     if (!showRetiro || !retiroForm.monto || retiroSaving) return
     setRetiroSaving(true)
+    try { await sb.auth.refreshSession() } catch (_) {}
     const monto = retiroForm.tipo === 'Retiro' ? -Math.abs(+retiroForm.monto) : +Math.abs(+retiroForm.monto)
     const mov = { id: 'MOV' + uid(), socioId: showRetiro.id, fecha: tod(), tipo: retiroForm.tipo, monto, concepto: retiroForm.concepto || retiroForm.tipo }
     setState(s => ({
@@ -5059,6 +5060,7 @@ function InversionistasModule({ state, setState }) {
   const saveMov = async () => {
     if (!sel || mvSaving) return
     setMvSaving(true)
+    try { await sb.auth.refreshSession() } catch (_) {}
     const monto = mv.tipo === 'Distribución' || mv.tipo === 'Retiro' ? -Math.abs(+mv.monto) : +mv.monto
     const nuevoMov = { id: 'M' + uid(), socioId: sel.id, ...mv, monto }
     setState(s => ({
