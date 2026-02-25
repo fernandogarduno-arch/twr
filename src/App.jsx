@@ -2474,7 +2474,7 @@ function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios }) {
   const defaultFondo = socios.find(s => !s.name.includes('TWR'))?.id || socios[0]?.id
 
   const addMethod = (tipo) => {
-    const base = { id: 'PM' + Date.now(), tipo, fondoDestino: defaultFondo, notas: '' }
+    const base = { id: 'PM' + Date.now(), tipo, notas: '' }
     if (tipo === 'efectivo' || tipo === 'electronico') onChange([...methods, { ...base, monto: '' }])
     else onChange([...methods, { ...base, piezas: [] }])
   }
@@ -2526,17 +2526,11 @@ function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios }) {
           </div>
 
           {(m.tipo === 'efectivo' || m.tipo === 'electronico') && (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8 }}>
               <div>
                 <label style={labelS}>Monto (MXN)</label>
                 <input type="number" value={m.monto} onChange={e => updateMethod(m.id, { monto: e.target.value })}
                   placeholder="0" style={inputS} />
-              </div>
-              <div>
-                <label style={labelS}>Fondo que recibe</label>
-                <select value={m.fondoDestino} onChange={e => updateMethod(m.id, { fondoDestino: e.target.value })} style={inputS}>
-                  {fondos.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                </select>
               </div>
             </div>
           )}
@@ -3068,6 +3062,7 @@ function InventarioModule({ state, setState }) {
   // ── Liquidación automática al completar pago ────────────────────────────
   const autoLiquidar = async (sale, watch) => {
     if (!sale || !watch) return
+    try { await sb.auth.refreshSession() } catch (_) {}
     const split = getFondoSplit(watch)
     const costo = watch.cost || 0
     const costosExtra = (watch.costos || []).reduce((a, c) => a + c.monto, 0)
@@ -4020,7 +4015,7 @@ function InventarioModule({ state, setState }) {
 }
 // ══════════════════════════════════════════════════════════════════════════════
 function VentasModule({ state, setState }) {
-  const { watches, sales, clients, brands, models, refs } = state
+  const { watches, sales, clients, brands, models, refs, socios } = state
   const [showPay, setShowPay]   = useState(null)
   const [showDocs, setShowDocs] = useState(null) // saleId
   const [pf, setPf]             = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
@@ -4056,6 +4051,37 @@ function VentasModule({ state, setState }) {
       toast('Pago registrado')
       setShowPay(null)
       setPf({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
+      // Disparar liquidación automática si el pago completa la venta
+      if (newStatus === 'Liquidado') {
+        const saleObj = { ...sale, payments: [...(sale?.payments || []), pago], status: 'Liquidado' }
+        const watchObj = watches.find(w => w.id === saleObj?.watchId)
+        if (saleObj && watchObj) {
+          try { await sb.auth.refreshSession() } catch (_) {}
+          const split = socios.reduce((a, s) => ({ ...a, [s.id]: s.participacion }), {})
+          const costo = (watchObj.cost || 0) + (watchObj.costos || []).reduce((a, c) => a + c.monto, 0)
+          const utilidad = saleObj.agreedPrice - costo
+          const movs = []
+          // Recuperación al fondo de origen
+          for (const [socioId, pct] of Object.entries(split)) {
+            if (!pct) continue
+            movs.push({ id: 'MOV' + uid(), socioId, fecha: tod(), tipo: 'Recuperación', monto: costo * pct / 100, concepto: `Recuperación costo · ${watchObj.serial || watchObj.id}` })
+          }
+          // Utilidad 40/60
+          if (utilidad > 0) {
+            for (const socio of socios) {
+              movs.push({ id: 'MOV' + uid(), socioId: socio.id, fecha: tod(), tipo: 'Utilidad', monto: utilidad * socio.participacion / 100, concepto: `Utilidad (${socio.participacion}%) · ${watchObj.serial || watchObj.id}` })
+            }
+          }
+          for (const m of movs) await db.saveMovimientoSocio(m)
+          setState(s => ({
+            ...s,
+            socios: s.socios.map(so => {
+              const sm = movs.filter(m => m.socioId === so.id)
+              return sm.length > 0 ? { ...so, movimientos: [...(so.movimientos || []), ...sm] } : so
+            })
+          }))
+        }
+      }
     } catch (e) {
       setState(s => ({ ...s, sales: prevSales }))
       toast('Error al registrar pago: ' + e.message, 'error')
