@@ -81,7 +81,7 @@ const logAction = (action, module, entity, description, entityId = null) => {
 }
 
 // ── DB watchdog — timeout + console logging for every db call ──
-const DB_TIMEOUT_MS = 12000
+const DB_TIMEOUT_MS = 20000
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
@@ -1773,6 +1773,12 @@ function DashboardModule({ state }) {
     }),
   ]
 
+  // Total Inversión = capital en piezas activas + efectivo disponible en fondos
+  const totalAportaciones = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
+  const totalRetiros      = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0), 0)
+  const capitalEfectivo   = Math.max(0, totalAportaciones - totalRetiros - valorInventario)
+  const totalInversion    = valorInventario + capitalEfectivo
+
   const card = { background: S1, border: `1px solid ${BR}`, borderRadius: 6 }
   const cardHdr = { padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }
 
@@ -1798,11 +1804,12 @@ function DashboardModule({ state }) {
       </div>
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 16 }}>
-        <KPI label="Capital Total"      value={fmt(capital)}          sub={`${socios.length} socios`} />
-        <KPI label="Valor Inventario"   value={fmt(valorInventario)}  sub={`${inv.length} piezas activas`} accent={GRN} />
-        <KPI label="Por Cobrar"         value={fmt(porCobrar)}        accent={porCobrar > 0 ? RED : GRN} sub={porCobrar > 0 ? 'Pendiente de pago' : 'Sin saldos pendientes'} />
-        <KPI label="Utilidad Acumulada" value={fmt(utilidad)}         sub={`${sold.length} relojes vendidos`} accent={BLU} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginBottom: 16 }}>
+        <KPI label="⌚ En Piezas"        value={fmt(valorInventario)}  sub={`${inv.length} piezas activas`} accent={G} />
+        <KPI label="💵 Efectivo Disponible" value={fmt(capitalEfectivo)} sub="Listo para invertir" accent={BLU} />
+        <KPI label="= Total Inversión"   value={fmt(totalInversion)}   sub="Piezas + Efectivo" accent={GRN} />
+        <KPI label="Por Cobrar"          value={fmt(porCobrar)}        accent={porCobrar > 0 ? RED : GRN} sub={porCobrar > 0 ? 'Pendiente de pago' : 'Sin saldos pendientes'} />
+        <KPI label="Utilidad Acumulada"  value={fmt(utilidad)}         sub={`${sold.length} relojes vendidos`} accent={BLU} />
       </div>
 
       {/* Row 1: Graficas + Pipeline */}
@@ -2431,21 +2438,22 @@ IMPORTANTE: Solo URLs de CDN de tiendas (cdn.chrono24.com, watchfinder.co.uk, bo
 // ══════════════════════════════════════════════════════════════════════════════
 //  PAYMENT METHODS EDITOR — formas de pago mixtas con trade-in
 // ══════════════════════════════════════════════════════════════════════════════
-function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios, brands, models, refs, suppliers }) {
+function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios }) {
   const fondos = socios.map(s => ({ id: s.id, label: s.name.includes('TWR') ? 'Fondo TWR' : `Fondo ${s.name.split(' ')[0]}` }))
   const defaultFondo = socios.find(s => !s.name.includes('TWR'))?.id || socios[0]?.id
 
   const addMethod = (tipo) => {
     const base = { id: 'PM' + Date.now(), tipo, fondoDestino: defaultFondo, notas: '' }
     if (tipo === 'efectivo' || tipo === 'electronico') onChange([...methods, { ...base, monto: '' }])
-    else onChange([...methods, { ...base, monto: '', fondoAdquiere: defaultFondo, piezas: [] }])
+    else onChange([...methods, { ...base, piezas: [] }])
   }
 
   const removeMethod = (id) => onChange(methods.filter(m => m.id !== id))
   const updateMethod = (id, patch) => onChange(methods.map(m => m.id === id ? { ...m, ...patch } : m))
 
+  // Trade-in: una fila simple por pieza (descripción + valor de toma + fondo)
   const addTradePieza = (methodId) => {
-    const blank = { tempId: 'TI' + Date.now(), _brandId: '', _modelId: '', refId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: false, papers: false, box: false, cost: '', priceDealer: '', priceAsked: '', fondoAdquiere: defaultFondo, notas: '' }
+    const blank = { tempId: 'TI' + Date.now(), descripcion: '', cost: '', fondoAdquiere: defaultFondo }
     onChange(methods.map(m => m.id === methodId ? { ...m, piezas: [...(m.piezas||[]), blank] } : m))
   }
   const removeTradePieza = (methodId, tempId) => onChange(methods.map(m => m.id === methodId ? { ...m, piezas: (m.piezas||[]).filter(p => p.tempId !== tempId) } : m))
@@ -2480,7 +2488,7 @@ function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios, brands, 
       {/* Filas de pago */}
       {methods.map(m => (
         <div key={m.id} style={{ background:S3, borderRadius:5, padding:'10px 12px', marginBottom:8, border:`1px solid ${BR}` }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: m.tipo==='trade_in' ? 10 : 0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
             <span style={{ fontSize:14 }}>{tipoIcon[m.tipo]}</span>
             <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, letterSpacing:'.1em', flex:1 }}>{tipoLabel[m.tipo].toUpperCase()}</span>
             <button onClick={() => removeMethod(m.id)} style={{ background:'none', border:'none', color:RED, cursor:'pointer', fontSize:14 }}>×</button>
@@ -2504,92 +2512,35 @@ function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios, brands, 
 
           {m.tipo === 'trade_in' && (
             <>
-              {/* Piezas trade-in */}
-              {(m.piezas||[]).map((p, pi) => {
-                const brandOpts = brands
-                const modelOpts = models.filter(mo => mo.brandId === p._brandId)
-                const refOpts = refs.filter(r => r.modelId === p._modelId)
-                const selRef = refs.find(r => r.id === p.refId)
-                // Store labels for later display
-                const bLabel = brands.find(b => b.id === p._brandId)?.name || ''
-                const mLabel = models.find(mo => mo.id === p._modelId)?.name || ''
-                return (
-                  <div key={p.tempId} style={{ background:S2, borderRadius:4, padding:10, marginBottom:8, border:`1px solid ${BR}` }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, letterSpacing:'.1em' }}>⌚ PIEZA {pi+1}</span>
-                      <button onClick={() => removeTradePieza(m.id, p.tempId)} style={{ background:'none', border:'none', color:RED, cursor:'pointer', fontSize:12 }}>× Quitar</button>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', marginBottom:8 }}>
+                Las piezas recibidas se registran en inventario al liquidar. Aquí solo captura la descripción y valor de toma acordado.
+              </div>
+              {(m.piezas||[]).map((p, pi) => (
+                <div key={p.tempId} style={{ background:S2, borderRadius:4, padding:'8px 10px', marginBottom:6, border:`1px solid ${BR}` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:G, letterSpacing:'.1em' }}>⌚ PIEZA {pi+1}</span>
+                    <button onClick={() => removeTradePieza(m.id, p.tempId)} style={{ background:'none', border:'none', color:RED, cursor:'pointer', fontSize:11 }}>× Quitar</button>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:6 }}>
+                    <div>
+                      <label style={labelS}>Descripción</label>
+                      <input value={p.descripcion} onChange={e => updateTradePieza(m.id, p.tempId, { descripcion: e.target.value })}
+                        placeholder="Ej: Rolex Submariner 116610LN" style={inputS} />
                     </div>
-                    {/* Brand/Model/Ref */}
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
-                      <div>
-                        <label style={labelS}>Marca *</label>
-                        <select value={p._brandId} onChange={e => updateTradePieza(m.id, p.tempId, { _brandId: e.target.value, _modelId: '', refId: '', _marcaLabel: brands.find(b=>b.id===e.target.value)?.name||'' })} style={inputS}>
-                          <option value="">— Marca —</option>
-                          {brandOpts.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={labelS}>Modelo *</label>
-                        <select value={p._modelId} onChange={e => updateTradePieza(m.id, p.tempId, { _modelId: e.target.value, refId: '', _modeloLabel: models.find(mo=>mo.id===e.target.value)?.name||'' })} disabled={!p._brandId} style={inputS}>
-                          <option value="">— Modelo —</option>
-                          {modelOpts.map(mo => <option key={mo.id} value={mo.id}>{mo.name}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={labelS}>Referencia *</label>
-                        <select value={p.refId} onChange={e => updateTradePieza(m.id, p.tempId, { refId: e.target.value })} disabled={!p._modelId} style={inputS}>
-                          <option value="">— Ref —</option>
-                          {refOpts.map(r => <option key={r.id} value={r.id}>{r.ref} · {r.material}</option>)}
-                        </select>
-                      </div>
+                    <div>
+                      <label style={labelS}>Valor de toma *</label>
+                      <input type="number" value={p.cost} onChange={e => updateTradePieza(m.id, p.tempId, { cost: e.target.value })}
+                        placeholder="0" style={{ ...inputS, border:`1px solid ${G}66` }} />
                     </div>
-                    {/* Serial + Condition */}
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:6 }}>
-                      <div>
-                        <label style={labelS}>Serial</label>
-                        <input value={p.serial} onChange={e => updateTradePieza(m.id, p.tempId, { serial: e.target.value })} placeholder="S/N" style={inputS} />
-                      </div>
-                      <div>
-                        <label style={labelS}>Condición</label>
-                        <select value={p.condition} onChange={e => updateTradePieza(m.id, p.tempId, { condition: e.target.value })} style={inputS}>
-                          {['Mint','Excelente','Muy Bueno','Bueno','Regular'].map(x => <option key={x}>{x}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    {/* Prices */}
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
-                      <div>
-                        <label style={labelS}>Costo / Valor trade *</label>
-                        <input type="number" value={p.cost} onChange={e => updateTradePieza(m.id, p.tempId, { cost: e.target.value })} placeholder="0" style={{ ...inputS, border:`1px solid ${G}66` }} />
-                      </div>
-                      <div>
-                        <label style={labelS}>Precio Dealer</label>
-                        <input type="number" value={p.priceDealer} onChange={e => updateTradePieza(m.id, p.tempId, { priceDealer: e.target.value })} placeholder="0" style={inputS} />
-                      </div>
-                      <div>
-                        <label style={labelS}>Precio Público</label>
-                        <input type="number" value={p.priceAsked} onChange={e => updateTradePieza(m.id, p.tempId, { priceAsked: e.target.value })} placeholder="0" style={inputS} />
-                      </div>
-                    </div>
-                    {/* Fondo + accesorios */}
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-                      <div>
-                        <label style={labelS}>Fondo que adquiere</label>
-                        <select value={p.fondoAdquiere} onChange={e => updateTradePieza(m.id, p.tempId, { fondoAdquiere: e.target.value })} style={inputS}>
-                          {fondos.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                        </select>
-                      </div>
-                      <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
-                        {[['fullSet','Full Set'],['papers','Papers'],['box','Box']].map(([k,l]) => (
-                          <label key={k} style={{ display:'flex', alignItems:'center', gap:4, marginRight:10, fontFamily:"'Jost',sans-serif", fontSize:11, color:TM, cursor:'pointer' }}>
-                            <input type="checkbox" checked={!!p[k]} onChange={e => updateTradePieza(m.id, p.tempId, { [k]: e.target.checked })} style={{ accentColor:G }} />{l}
-                          </label>
-                        ))}
-                      </div>
+                    <div>
+                      <label style={labelS}>Fondo adquiere</label>
+                      <select value={p.fondoAdquiere} onChange={e => updateTradePieza(m.id, p.tempId, { fondoAdquiere: e.target.value })} style={inputS}>
+                        {fondos.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                      </select>
                     </div>
                   </div>
-                )
-              })}
+                </div>
+              ))}
               <button onClick={() => addTradePieza(m.id)}
                 style={{ width:'100%', padding:'7px 0', background:G+'11', border:`1px dashed ${G}44`, borderRadius:4, color:G, fontFamily:"'DM Mono',monospace", fontSize:9, cursor:'pointer', letterSpacing:'.1em' }}>
                 + AGREGAR PIEZA TRADE-IN
@@ -2620,6 +2571,7 @@ function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios, brands, 
     </div>
   )
 }
+
 
 function InventarioModule({ state, setState }) {
   const { watches, sales, socios, brands, models, refs, suppliers, clients } = state
@@ -3489,7 +3441,6 @@ function InventarioModule({ state, setState }) {
             onChange={pm => setSf(f => ({ ...f, paymentMethods: pm }))}
             agreedPrice={+sf.agreedPrice || 0}
             socios={socios}
-            brands={brands} models={models} refs={refs} suppliers={suppliers}
           />
 
           <Field label="Notas" style={{ marginTop: 10 }}>
