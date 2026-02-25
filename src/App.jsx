@@ -1774,10 +1774,11 @@ function DashboardModule({ state }) {
   ]
 
   // Total Inversión = capital en piezas activas + efectivo disponible en fondos
-  const totalAportaciones = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
-  const totalRetiros      = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0), 0)
-  const capitalEfectivo   = Math.max(0, totalAportaciones - totalRetiros - valorInventario)
-  const totalInversion    = valorInventario + capitalEfectivo
+  // capital = todas las entradas positivas (aportaciones + recuperaciones de ventas + utilidades)
+  // efectivo real = capital - retiros ya realizados - lo que está inmovilizado en piezas
+  const totalRetiros    = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0), 0)
+  const capitalFlujo   = Math.max(0, capital - totalRetiros)
+  const totalInversion = capitalFlujo + valorInventario
 
   const card = { background: S1, border: `1px solid ${BR}`, borderRadius: 6 }
   const cardHdr = { padding: '12px 18px', borderBottom: `1px solid ${BR}`, fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, letterSpacing: '.1em' }
@@ -1806,8 +1807,8 @@ function DashboardModule({ state }) {
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginBottom: 16 }}>
         <KPI label="⌚ En Piezas"        value={fmt(valorInventario)}  sub={`${inv.length} piezas activas`} accent={G} />
-        <KPI label="💵 Efectivo Disponible" value={fmt(capitalEfectivo)} sub="Listo para invertir" accent={BLU} />
-        <KPI label="= Total Inversión"   value={fmt(totalInversion)}   sub="Piezas + Efectivo" accent={GRN} />
+        <KPI label="💵 Flujo Disponible"  value={fmt(capitalFlujo)}     sub="Capital neto en movimiento" accent={BLU} />
+        <KPI label="= Total Inversión"   value={fmt(totalInversion)}   sub="Piezas + Flujo" accent={GRN} />
         <KPI label="Por Cobrar"          value={fmt(porCobrar)}        accent={porCobrar > 0 ? RED : GRN} sub={porCobrar > 0 ? 'Pendiente de pago' : 'Sin saldos pendientes'} />
         <KPI label="Utilidad Acumulada"  value={fmt(utilidad)}         sub={`${sold.length} relojes vendidos`} accent={BLU} />
       </div>
