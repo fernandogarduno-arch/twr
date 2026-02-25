@@ -1705,12 +1705,13 @@ function DonutChart({ slices, size = 120 }) {
   const r = 40, cx = 60, cy = 60
   const circ = 2 * Math.PI * r
   let offset = 0
-  const total = slices.reduce((a, s) => a + s.value, 0) || 1
+  const total = slices.reduce((a, s) => a + s.value, 0)
+  const divisor = total || 1  // evita división por cero, sin afectar el label
   return (
     <svg width={size} height={size} viewBox="0 0 120 120">
       <circle cx={cx} cy={cy} r={r} fill="none" stroke={S1} strokeWidth="16" />
       {slices.map((s, i) => {
-        const pct = s.value / total
+        const pct = s.value / divisor
         const dash = pct * circ
         const el = (
           <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="16"
