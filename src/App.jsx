@@ -4028,17 +4028,20 @@ function ReportesModule({ state, setState }) {
 
   // ── Cálculos base ─────────────────────────────────────────────────────────
   const utilidad   = sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0) - (w?.costos || []).reduce((x, c) => x + c.monto, 0)) }, 0)
-  const capital    = socios.reduce((a, s) => a + (s.movimientos || []).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
-  const roi        = capital > 0 ? (utilidad / capital * 100).toFixed(1) : 0
   const margenProm = sales.length > 0 ? (sales.reduce((a, s) => { const w = watches.find(x => x.id === s.watchId); return a + (s.agreedPrice - (w?.cost || 0)) / s.agreedPrice * 100 }, 0) / sales.length).toFixed(1) : 0
 
-  // ── Capital Global ─────────────────────────────────────────────────────────
-  const capitalEnPiezas   = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja').reduce((a, w) => a + (w.cost || 0), 0)
-  const capitalGlobal     = capitalEnPiezas + socios.reduce((a, s) => {
-    const entradas = (s.movimientos || []).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0)
-    const salidas  = (s.movimientos || []).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0)
-    return a + Math.max(0, entradas - salidas)
-  }, 0)
+  // ── Flujo de capital ────────────────────────────────────────────────────────
+  // Entradas = aportaciones + recuperaciones de ventas + utilidades registradas
+  const totalEntradas  = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto > 0).reduce((x, m) => x + m.monto, 0), 0)
+  // Salidas = retiros y distribuciones (dinero que salió del fondo)
+  const totalSalidas   = socios.reduce((a, s) => a + (s.movimientos||[]).filter(m => m.monto < 0).reduce((x, m) => x + Math.abs(m.monto), 0), 0)
+  // Flujo neto = lo que queda circulando (sin importar si está en piezas o cash)
+  const flujoNeto      = totalEntradas - totalSalidas
+  // En piezas = inventario activo a costo
+  const capitalEnPiezas = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja').reduce((a, w) => a + (w.cost || 0), 0)
+  // Total inversión = flujo neto + piezas activas (visión de exposición total)
+  const totalInversion = flujoNeto + capitalEnPiezas
+  const roi            = totalEntradas > 0 ? (utilidad / totalEntradas * 100).toFixed(1) : 0
 
   // ── Por Fondo (Fernando vs TWR) ────────────────────────────────────────────
   const calcFondo = (s) => {
@@ -4046,7 +4049,6 @@ function ReportesModule({ state, setState }) {
     const entradas   = movs.filter(m => m.monto > 0).reduce((a, m) => a + m.monto, 0)
     const retiros    = movs.filter(m => m.tipo === 'Retiro' || m.tipo === 'Distribución').reduce((a, m) => a + Math.abs(m.monto), 0)
     const retirables = movs.filter(m => m.tipo === 'Utilidad').reduce((a, m) => a + m.monto, 0)
-    // Piezas financiadas por este fondo
     const piezas = watches.filter(w => w.stage !== 'liquidado' && w.stage !== 'baja' && (
       w.modoAdquisicion === 'aportacion' ? w.socioAportaId === s.id :
       w.modoAdquisicion === 'twr' ? s.name.includes('TWR') : true
@@ -4060,8 +4062,6 @@ function ReportesModule({ state, setState }) {
     return { ...s, label, entradas, retiros, retirables, piezas, efectivo, total: piezas + efectivo }
   }
   const fondos = socios.map(calcFondo)
-
-  // ── Distribución a socios (legacy compat) ────────────────────────────────
   const distInv = fondos.map(f => ({ ...f, dist: f.retiros, corr: utilidad * f.participacion / 100, pend: 0, piezasS: f.piezas, efectivoS: f.efectivo }))
 
   // ── Modal retiro manual ───────────────────────────────────────────────────
@@ -4100,12 +4100,35 @@ function ReportesModule({ state, setState }) {
     <div>
       <SH title="Reportes" subtitle="Resumen financiero del proyecto" />
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 18 }}>
-        <KPI label="Capital Total"   value={fmt(capital)}     accent={BLU} />
-        <KPI label="Utilidad Bruta"  value={fmt(utilidad)}    accent={GRN} />
-        <KPI label="ROI Acumulado"   value={`${roi}%`} />
-        <KPI label="Margen Promedio" value={`${margenProm}%`} accent={TM} />
+      {/* KPIs fila 1: inversión */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 14 }}>
+        <KPI label="⌚ En Piezas"       value={fmt(capitalEnPiezas)} accent={G}   sub={`${watches.filter(w=>w.stage!=='liquidado'&&w.stage!=='baja').length} piezas activas`} />
+        <KPI label="💵 Flujo Neto"      value={fmt(flujoNeto)}       accent={BLU} sub="Entradas − Salidas registradas" />
+        <KPI label="= Total Inversión"  value={fmt(totalInversion)}  accent={GRN} sub="Piezas + Flujo neto" />
+      </div>
+
+      {/* KPIs fila 2: flujo detallado */}
+      <div style={{ background:S1, border:`1px solid ${BR}`, borderRadius:6, marginBottom:18 }}>
+        <div style={{ padding:'10px 18px', borderBottom:`1px solid ${BR}`, fontFamily:"'DM Mono',monospace", fontSize:9, color:TM, letterSpacing:'.1em' }}>
+          FLUJO DE CAPITAL
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:0 }}>
+          {[
+            { label:'TOTAL ENTRADAS', value:totalEntradas, color:GRN, icon:'↑', sub:'Aportaciones + recuperaciones' },
+            { label:'TOTAL SALIDAS',  value:totalSalidas,  color:RED, icon:'↓', sub:'Retiros y distribuciones' },
+            { label:'FLUJO NETO',     value:flujoNeto,     color:BLU, icon:'⇌', sub:'Entradas − Salidas' },
+            { label:'UTILIDAD BRUTA', value:utilidad,      color:G,   icon:'✨', sub:`ROI ${roi}%` },
+            { label:'MARGEN PROM.',   value:null,          color:TM,  icon:'%',  sub:`${margenProm}% por venta` },
+          ].map((item, i) => (
+            <div key={i} style={{ padding:'14px 18px', borderRight: i<4 ? `1px solid ${BR}` : 'none' }}>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD, letterSpacing:'.1em', marginBottom:4 }}>{item.label}</div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:17, color:item.color, marginBottom:2 }}>
+                {item.value !== null ? fmt(item.value) : `${margenProm}%`}
+              </div>
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:8, color:TD }}>{item.sub}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── FONDOS DE CAPITAL ── */}
