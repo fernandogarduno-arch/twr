@@ -2752,6 +2752,17 @@ function InventarioModule({ state, setState }) {
   const saveWatch = async () => {
     if (watchSaving) return
     setWatchSaving(true)
+
+    // Refresh JWT antes de escribir — previene timeout por sesion expirada
+    try {
+      const { error: authErr } = await sb.auth.refreshSession()
+      if (authErr) {
+        toast("Sesion expirada — vuelve a iniciar sesion", "error")
+        setWatchSaving(false)
+        return
+      }
+    } catch (_) {}
+
     const id = 'W' + uid()
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
     const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceDealer: +wf.priceDealer || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [], fuenteFondos: wf.fuenteFondos || 'flujo' }
