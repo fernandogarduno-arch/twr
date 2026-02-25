@@ -259,6 +259,15 @@ const db = {
     if (error) throw new Error(error.message)
   },
 
+  // ELIMINAR MOVIMIENTOS POR SERIAL (reverso de baja)
+  async deleteMovimientosBySerial(serial) {
+    if (!serial) return
+    const { error } = await sb.from('movimientos_socios')
+      .delete()
+      .ilike('concepto', `%${serial}%`)
+    if (error) throw new Error(error.message)
+  },
+
   // TIPOS DE COSTO
   async saveTipoCosto(t) {
     const { error } = await sb.from('tipos_costo').upsert({
@@ -2905,10 +2914,24 @@ function InventarioModule({ state, setState }) {
     if (!selWatch) return
     // Refresh sesión antes de escribir
     try { await sb.auth.refreshSession() } catch (_) {}
+    const serial = selWatch.serial || selWatch.id
     const updated = { ...selWatch, stage: 'baja', status: 'Baja', notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}` }
-    setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
+
+    // Revertir movimientos contables de esta pieza en el estado local
+    setState(s => ({
+      ...s,
+      watches: s.watches.map(w => w.id !== selWatch.id ? w : updated),
+      socios: s.socios.map(so => ({
+        ...so,
+        movimientos: (so.movimientos || []).filter(m =>
+          !m.concepto?.includes(serial) || m.tipo === 'Distribución' || m.tipo === 'Retiro'
+        )
+      }))
+    }))
     try {
       await db.updateWatch(selWatch.id, { stage: 'baja', status: 'Baja', notes: updated.notes })
+      // Eliminar movimientos contables de esta pieza de la DB
+      await db.deleteMovimientosBySerial(serial)
       // savePiezaEdit es secundario — no bloquear la baja si falla
       try {
         await db.savePiezaEdit({ piezaId: selWatch.id, campo: 'Baja', valorAntes: selWatch.stage, valorDespues: 'baja', editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario' })
