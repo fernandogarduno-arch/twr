@@ -2657,60 +2657,44 @@ function InventarioModule({ state, setState }) {
       }
     }
 
-    // ── Create ───────────────────────────────────────────────────────────────
+    // ── Create — Supabase primero, local solo si confirma ──────────────────
+    // Así nunca quedan datos "fantasma" en local sin estar en Supabase
     setQcSaving(true)
-    let created = null
-    let createdType = null
     try {
       if (type === 'brand') {
         const brand = { id: 'B' + uid(), name: qf.name.trim(), country: qf.country || 'Suiza', founded: qf.founded || null, notes: '' }
-        created = brand; createdType = 'brand'
+        await db.saveBrand(brand)  // Supabase primero
         setState(s => ({ ...s, brands: [...s.brands, brand] }))
         setWf(f => ({ ...f, _brandId: brand.id, _modelId: '', refId: '' }))
-        await db.saveBrand(brand)
         toast(`Marca "${brand.name}" creada`)
       } else if (type === 'model') {
         const model = { id: 'M' + uid(), brandId: wf._brandId, name: qf.name.trim(), family: qf.family || '', notes: '' }
-        created = model; createdType = 'model'
+        await db.saveModel(model)  // Supabase primero
         setState(s => ({ ...s, models: [...s.models, model] }))
         setWf(f => ({ ...f, _modelId: model.id, refId: '' }))
-        await db.saveModel(model)
         toast(`Modelo "${model.name}" creado`)
       } else if (type === 'ref') {
         const ref = { id: 'R' + uid(), modelId: wf._modelId, ref: qf.ref.trim(), caliber: qf.caliber || '', material: qf.material || 'Acero', bezel: qf.bezel || '', dial: qf.dial || '', size: qf.size || '', bracelet: '', year: +qf.year || null, notes: '' }
-        created = ref; createdType = 'ref'
+        await db.saveRef(ref)  // Supabase primero
         setState(s => ({ ...s, refs: [...s.refs, ref] }))
         setWf(f => ({ ...f, refId: ref.id }))
-        await db.saveRef(ref)
         toast(`Referencia "${ref.ref}" creada`)
       } else if (type === 'supplier') {
         const supplier = { id: 'P' + uid(), name: qf.name.trim(), type: qf.type || 'Particular', phone: qf.phone || '', email: '', city: '', notes: '', rating: 3, totalDeals: 0 }
-        created = supplier; createdType = 'supplier'
+        await db.saveSupplier(supplier)  // Supabase primero
         setState(s => ({ ...s, suppliers: [...s.suppliers, supplier] }))
         setWf(f => ({ ...f, supplierId: supplier.id }))
-        await db.saveSupplier(supplier)
         toast(`Proveedor "${supplier.name}" creado`)
       } else if (type === 'client') {
         const client = { id: 'C' + uid(), name: qf.name.trim(), phone: qf.phone || '', email: '', city: '', tier: 'Prospecto', notes: '', totalSpent: 0, totalPurchases: 0 }
-        created = client; createdType = 'client'
+        await db.saveClient(client)  // Supabase primero
         setState(s => ({ ...s, clients: [...s.clients, client] }))
         setSf(f => ({ ...f, clientId: client.id }))
-        await db.saveClient(client)
         toast(`Cliente "${client.name}" creado`)
       }
       setQc(null); setQf({}); setQcError('')
     } catch (e) {
-      // Rollback optimistic update
-      if (created && createdType) {
-        setState(s => ({
-          ...s,
-          brands:    createdType === 'brand'    ? s.brands.filter(x => x.id !== created.id)    : s.brands,
-          models:    createdType === 'model'    ? s.models.filter(x => x.id !== created.id)    : s.models,
-          refs:      createdType === 'ref'      ? s.refs.filter(x => x.id !== created.id)      : s.refs,
-          suppliers: createdType === 'supplier' ? s.suppliers.filter(x => x.id !== created.id) : s.suppliers,
-          clients:   createdType === 'client'   ? s.clients.filter(x => x.id !== created.id)   : s.clients,
-        }))
-      }
+      // No hay nada que revertir — nunca se guardó localmente
       setQcError('Error al guardar: ' + e.message)
     }
     setQcSaving(false)
