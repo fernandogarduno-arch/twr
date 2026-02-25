@@ -12,7 +12,7 @@ const sb = createClient(
       persistSession: true,
       storageKey: 'twr-auth-v4',
       detectSessionInUrl: true,
-      autoRefreshToken: true
+      lock: (_name, _acquireTimeout, fn) => fn()
     }
   }
 )
@@ -80,35 +80,12 @@ const logAction = (action, module, entity, description, entityId = null) => {
   }).then(() => {})  // intentionally silent — never throw
 }
 
-// ── Session flag — se activa SOLO después de que auth inicializa completamente ──
-let _sessionReady = false
-const markSessionReady = () => { _sessionReady = true }
-
-// Refresca token solo si la sesión ya está activa y está por expirar.
-// No-op durante el arranque para evitar deadlock con el lock nativo de Supabase JS.
-async function tryRefreshSession() {
-  if (!_sessionReady) return
-  try {
-    const { data: { session } } = await sb.auth.getSession()
-    if (!session) return
-    const msToExpiry = (session.expires_at * 1000) - Date.now()
-    if (msToExpiry < 3 * 60 * 1000) {
-      console.log('[TWR AUTH] ⟳ Token próximo a expirar, refrescando...')
-      await sb.auth.refreshSession()
-      console.log('[TWR AUTH] ✓ Token renovado')
-    }
-  } catch(e) {
-    console.warn('[TWR AUTH] No se pudo refrescar sesión:', e.message)
-  }
-}
-
-// ── DB watchdog — timeout + session refresh + logging ──
-const DB_TIMEOUT_MS = 12000
+// ── DB watchdog — timeout + console logging for every db call ──
+const DB_TIMEOUT_MS = 8000
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
     console.log(`[TWR DB] ⏳ ${name}`, ...args.map(a => typeof a === 'object' ? JSON.stringify(a).slice(0,120) : a))
-    await tryRefreshSession()
     const timeout = new Promise((_, rej) =>
       setTimeout(() => rej(new Error(`[TWR DB] ⏰ TIMEOUT (${DB_TIMEOUT_MS/1000}s) en ${name} — verifica RLS y conexión`)), DB_TIMEOUT_MS)
     )
@@ -2597,78 +2574,6 @@ function PaymentMethodsEditor({ methods, onChange, agreedPrice, socios }) {
 }
 
 
-// ── Ejecutar liquidación standalone (retry manual desde VentasModule) ────
-async function ejecutarLiquidacionStandalone(sale, watch, socios, setState) {
-  const split = (() => {
-    if (!watch) return {}
-    if (watch.modoAdquisicion === 'twr') return socios.reduce((a, s) => ({ ...a, [s.id]: s.name.includes('TWR') ? 100 : 0 }), {})
-    if (watch.modoAdquisicion === 'aportacion') return socios.reduce((a, s) => ({ ...a, [s.id]: s.id === watch.socioAportaId ? 100 : 0 }), {})
-    if (watch.modoAdquisicion === 'personalizado' && watch.splitPersonalizado) return watch.splitPersonalizado
-    return socios.reduce((a, s) => ({ ...a, [s.id]: s.participacion }), {})
-  })()
-  const costo = watch.cost || 0
-  const costosExtra = (watch.costos || []).reduce((a, c) => a + c.monto, 0)
-  const costoTotal = costo + costosExtra
-  const utilidad = sale.agreedPrice - costoTotal
-  const tradePMs = (sale.paymentMethods || []).filter(pm => pm.tipo === 'trade_in')
-  const tradePiezas = tradePMs.flatMap(pm =>
-    (pm.piezas || []).map(p => ({ ...p, fondoAdquiere: pm.fondoAdquiere || socios.find(s => !s.name.includes('TWR'))?.id }))
-  )
-  const movimientosCalc = []
-  for (const [socioId, pct] of Object.entries(split)) {
-    if (!pct) continue
-    movimientosCalc.push({ socioId, tipo: 'Recuperación', monto: costoTotal * pct / 100, concepto: `Recuperación costo · ${watch.serial?.trim() || sale.watchId}` })
-  }
-  if (utilidad > 0) {
-    for (const socio of socios) {
-      movimientosCalc.push({ socioId: socio.id, tipo: 'Utilidad', monto: utilidad * socio.participacion / 100, concepto: `Utilidad (${socio.participacion}%) · ${watch.serial?.trim() || sale.watchId}` })
-    }
-  }
-  for (const tp of tradePiezas) {
-    if (!tp.fondoAdquiere || !tp.cost) continue
-    movimientosCalc.push({ socioId: tp.fondoAdquiere, tipo: 'Trade-In Adquisición', monto: -tp.cost, concepto: `Trade-In: ${tp._marcaLabel || ''} ${tp._modeloLabel || ''} · ${tp.serial || 'S/N'}` })
-  }
-  const savedMovs = []
-  for (const m of movimientosCalc) {
-    const mov = { id: 'MOV' + uid(), socioId: m.socioId, fecha: tod(), tipo: m.tipo, monto: m.monto, concepto: m.concepto }
-    await db.saveMovimientoSocio(mov)
-    savedMovs.push(mov)
-    logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))}`, sale.id)
-  }
-  setState(s => ({
-    ...s,
-    socios: s.socios.map(so => {
-      const movs = savedMovs.filter(m => m.socioId === so.id)
-      return movs.length > 0 ? { ...so, movimientos: [...(so.movimientos || []), ...movs] } : so
-    }),
-    liquidacionesPendientes: (s.liquidacionesPendientes || []).filter(lp => lp.saleId !== sale.id)
-  }))
-  return savedMovs
-}
-
-function ReliquidarBtn({ sale, watch, state, setState }) {
-  const [saving, setSaving] = React.useState(false)
-  const handleRetry = async () => {
-    if (!watch || saving) return
-    setSaving(true)
-    try {
-      const movs = await ejecutarLiquidacionStandalone(sale, watch, state.socios || [], setState)
-      toast(`✓ ${movs.length} movimientos contables registrados`, 'success')
-    } catch(e) {
-      toast('Error al reliquidar: ' + e.message, 'error')
-    }
-    setSaving(false)
-  }
-  return (
-    <button onClick={handleRetry} disabled={saving}
-      style={{ background: saving ? S3 : G, color: saving ? TD : BG, border: 'none', borderRadius: 3,
-        padding: '5px 14px', fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '.1em',
-        cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1 }}>
-      {saving ? 'PROCESANDO...' : '⟳ RELIQUIDAR'}
-    </button>
-  )
-}
-
 function InventarioModule({ state, setState }) {
   const { watches, sales, socios, brands, models, refs, suppliers, clients } = state
   const [view, setView]         = useState('pipeline')
@@ -3070,81 +2975,95 @@ function InventarioModule({ state, setState }) {
   }
 
   // ── Liquidación automática al completar pago ────────────────────────────
-  const calcLiquidacionMovimientos = (sale, watch) => {
+  const autoLiquidar = async (sale, watch) => {
+    if (!sale || !watch) return
     const split = getFondoSplit(watch)
     const costo = watch.cost || 0
     const costosExtra = (watch.costos || []).reduce((a, c) => a + c.monto, 0)
     const costoTotal = costo + costosExtra
     const utilidad = sale.agreedPrice - costoTotal
+
+    // Piezas trade-in recibidas en la venta
     const tradePMs = (sale.paymentMethods || []).filter(pm => pm.tipo === 'trade_in')
-    const tradePiezas = tradePMs.flatMap(pm =>
-      (pm.piezas || []).map(p => ({ ...p, fondoAdquiere: pm.fondoAdquiere || socios.find(s => !s.name.includes('TWR'))?.id }))
-    )
+    const tradePiezas = tradePMs.flatMap(pm => (pm.piezas || []).map(p => ({ ...p, fondoAdquiere: pm.fondoAdquiere || socios.find(s => s.name.includes('TWR') ? false : true)?.id })))
+
     const movimientosCalc = []
+
+    // 1. Recuperación de costo por fondo propietario
     for (const [socioId, pct] of Object.entries(split)) {
       if (!pct) continue
-      movimientosCalc.push({ socioId, tipo: 'Recuperación', monto: costoTotal * pct / 100, concepto: `Recuperación costo · ${watch.serial?.trim() || sale.watchId}` })
+      const montoRecup = costoTotal * pct / 100
+      movimientosCalc.push({
+        socioId, tipo: 'Recuperación',
+        monto: montoRecup,
+        concepto: `Recuperación costo · ${watch.serial || sale.watchId}`
+      })
     }
+
+    // 2. Utilidad: siempre split global 40/60
     if (utilidad > 0) {
       for (const socio of socios) {
-        movimientosCalc.push({ socioId: socio.id, tipo: 'Utilidad', monto: utilidad * socio.participacion / 100, concepto: `Utilidad (${socio.participacion}%) · ${watch.serial?.trim() || sale.watchId}` })
+        const montoUtil = utilidad * socio.participacion / 100
+        movimientosCalc.push({
+          socioId: socio.id, tipo: 'Utilidad',
+          monto: montoUtil,
+          concepto: `Utilidad (${socio.participacion}%) · ${watch.serial || sale.watchId}`
+        })
       }
     }
+
+    // 3. Trade-in: descontar del fondo que adquiere cada pieza
     for (const tp of tradePiezas) {
       if (!tp.fondoAdquiere || !tp.cost) continue
-      movimientosCalc.push({ socioId: tp.fondoAdquiere, tipo: 'Trade-In Adquisición', monto: -tp.cost, concepto: `Trade-In: ${tp._marcaLabel || ''} ${tp._modeloLabel || ''} · ${tp.serial || 'S/N'}` })
+      movimientosCalc.push({
+        socioId: tp.fondoAdquiere, tipo: 'Trade-In Adquisición',
+        monto: -tp.cost,
+        concepto: `Trade-In: ${tp._marcaLabel || ''} ${tp._modeloLabel || ''} · ${tp.serial || 'S/N'}`
+      })
     }
-    return { movimientosCalc, tradePiezas, utilidad }
-  }
 
-  const ejecutarLiquidacion = async (sale, watch) => {
-    const { movimientosCalc, tradePiezas, utilidad } = calcLiquidacionMovimientos(sale, watch)
+    // Guardar movimientos y crear piezas trade
     const savedMovs = []
-    for (const m of movimientosCalc) {
-      const mov = { id: 'MOV' + uid(), socioId: m.socioId, fecha: tod(), tipo: m.tipo, monto: m.monto, concepto: m.concepto }
-      await db.saveMovimientoSocio(mov)
-      savedMovs.push(mov)
-      logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
-    }
-    const newWatches = []
-    for (const tp of tradePiezas) {
-      if (!tp.refId) continue
-      const nw = {
-        id: 'W' + uid(), refId: tp.refId, supplierId: tp.supplierId || null,
-        serial: tp.serial || '', condition: tp.condition || 'Muy Bueno',
-        fullSet: tp.fullSet || false, papers: tp.papers || false, box: tp.box || false,
-        cost: tp.cost || 0, priceDealer: tp.priceDealer || 0, priceAsked: tp.priceAsked || 0,
-        entryDate: tod(), status: 'Disponible', stage: 'inventario',
-        notes: `Trade-In · Venta ${sale.id}${tp.notas ? ' · ' + tp.notas : ''}`,
-        modoAdquisicion: 'aportacion', socioAportaId: tp.fondoAdquiere || null,
-        splitPersonalizado: null, costos: []
-      }
-      await db.saveWatch(nw)
-      newWatches.push(nw)
-      logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
-    }
-    setState(s => ({
-      ...s,
-      socios: s.socios.map(so => {
-        const movs = savedMovs.filter(m => m.socioId === so.id)
-        return movs.length > 0 ? { ...so, movimientos: [...(so.movimientos || []), ...movs] } : so
-      }),
-      watches: newWatches.length > 0 ? [...s.watches, ...newWatches] : s.watches
-    }))
-    setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad })
-    return savedMovs
-  }
-
-  const autoLiquidar = async (sale, watch) => {
-    if (!sale || !watch) return
     try {
-      await ejecutarLiquidacion(sale, watch)
-    } catch (e) {
+      for (const m of movimientosCalc) {
+        const mov = { id: 'MOV' + uid(), socioId: m.socioId, fecha: tod(), tipo: m.tipo, monto: m.monto, concepto: m.concepto }
+        await db.saveMovimientoSocio(mov)
+        savedMovs.push(mov)
+        logAction('create', 'reportes', 'movimiento', `${m.tipo} ${fmt(Math.abs(m.monto))} · ${fondoName(m.socioId)}`, sale.id)
+      }
+
+      // Crear piezas trade-in en inventario
+      const newWatches = []
+      for (const tp of tradePiezas) {
+        if (!tp.refId) continue
+        const nw = {
+          id: 'W' + uid(), refId: tp.refId, supplierId: tp.supplierId || null,
+          serial: tp.serial || '', condition: tp.condition || 'Muy Bueno',
+          fullSet: tp.fullSet || false, papers: tp.papers || false, box: tp.box || false,
+          cost: tp.cost || 0, priceDealer: tp.priceDealer || 0, priceAsked: tp.priceAsked || 0,
+          entryDate: tod(), status: 'Disponible', stage: 'inventario',
+          notes: `Trade-In · Venta ${sale.id}${tp.notas ? ' · ' + tp.notas : ''}`,
+          modoAdquisicion: 'aportacion', socioAportaId: tp.fondoAdquiere || null,
+          splitPersonalizado: null, costos: []
+        }
+        await db.saveWatch(nw)
+        newWatches.push(nw)
+        logAction('create', 'inventario', 'pieza', `Trade-In ingresó al inventario · ${tp.serial || nw.id}`, nw.id)
+      }
+
+      // Update local state
       setState(s => ({
         ...s,
-        liquidacionesPendientes: [...(s.liquidacionesPendientes || []), { saleId: sale.id, watchId: watch.id, ts: Date.now() }]
+        socios: s.socios.map(so => {
+          const movs = savedMovs.filter(m => m.socioId === so.id)
+          return movs.length > 0 ? { ...so, movimientos: [...(so.movimientos || []), ...movs] } : so
+        }),
+        watches: newWatches.length > 0 ? [...s.watches, ...newWatches] : s.watches
       }))
-      toast('⚠️ Movimientos contables pendientes — ve a Ventas y usa "Reliquidar"', 'error')
+
+      setShowLiquidacion({ sale, watch, movimientos: movimientosCalc, tradePiezas: newWatches, utilidad })
+    } catch (e) {
+      toast('Error en liquidación automática: ' + e.message, 'error')
     }
   }
 
@@ -4125,22 +4044,6 @@ function VentasModule({ state, setState }) {
                   </Btn>
                 )
               )}
-              {/* Banner reliquidar — solo aparece en ventas Liquidadas sin Recuperación */}
-              {sale.status === 'Liquidado' && (() => {
-                const w = watches.find(x => x.id === sale.watchId)
-                const serial = w?.serial?.trim() || sale.watchId
-                const tieneMovs = (state.socios || []).some(s =>
-                  (s.movimientos || []).some(m => m.tipo === 'Recuperación' && m.concepto?.includes(serial))
-                )
-                if (tieneMovs) return null
-                return (
-                  <div style={{ marginTop: 10, background: G + '11', border: `1px solid ${G}44`, borderRadius: 4, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: G, letterSpacing: '.08em' }}>⚠ MOVIMIENTOS CONTABLES PENDIENTES</span>
-                    <ReliquidarBtn sale={sale} watch={w} state={state} setState={setState} />
-                  </div>
-                )
-              })()}
-
               {/* Compliance docs toggle */}
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BR}` }}>
                 <button onClick={() => setShowDocs(showDocs === sale.id ? null : sale.id)}
@@ -6299,7 +6202,6 @@ export default function App() {
         if (p && p.role !== 'pending') {
           _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
           await loadData()
-          markSessionReady()
         }
       }
       setAuthLoading(false)
@@ -6315,11 +6217,7 @@ export default function App() {
           _auditUser = { id: session.user.id, email: session.user.email, name: p?.name }
           logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
           await loadData()
-          markSessionReady()
         }
-      } else if (event === 'TOKEN_REFRESHED' && session) {
-        setAuthUser(session.user)
-        console.log('[TWR AUTH] ✓ Sesión renovada automáticamente')
       } else if (event === 'SIGNED_OUT') {
         logAction('logout', 'sistema', 'sesión', 'Cerró sesión')
         _auditUser = null
