@@ -2590,7 +2590,7 @@ function InventarioModule({ state, setState }) {
   const [showLiquidacion, setShowLiquidacion] = useState(null) // { sale, watch, movimientos, tradePiezas }
   const [aiLoading, setAiLoading] = useState(false)  // bloquea cierre durante verificación IA
 
-  const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceDealer: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [] }
+  const blank = { refId: '', _brandId: '', _modelId: '', supplierId: '', serial: '', condition: 'Muy Bueno', fullSet: true, papers: true, box: true, cost: '', priceDealer: '', priceAsked: '', entryDate: tod(), status: 'Oportunidad', notes: '', modoAdquisicion: 'sociedad', splitPersonalizado: null, costos: [], fuenteFondos: 'flujo' }
   const [wf, setWf] = useState({ ...blank })
   const [sf, setSf] = useState({ clientId: '', saleDate: tod(), agreedPrice: '', notes: '', paymentMethods: [] })
   const [pf, setPf] = useState({ date: tod(), amount: '', method: 'Transferencia', notes: '' })
@@ -2733,18 +2733,56 @@ function InventarioModule({ state, setState }) {
     setWatchSaving(true)
     const id = 'W' + uid()
     const stage = wf.status === 'Oportunidad' ? 'oportunidad' : 'inventario'
-    const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceDealer: +wf.priceDealer || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [] }
+    const watch = { ...wf, id, stage, cost: +wf.cost || 0, priceDealer: +wf.priceDealer || 0, priceAsked: +wf.priceAsked || 0, validatedBy: '', validationDate: '', costos: [], fuenteFondos: wf.fuenteFondos || 'flujo' }
+
+    // ── Movimiento contable automático ──────────────────────────────────────
+    // Solo para modo aportacion (cuando sabemos qué socio financia la pieza)
+    let movContable = null
+    if (wf.modoAdquisicion === 'aportacion' && wf.socioAportaId && watch.cost > 0) {
+      if (wf.fuenteFondos === 'flujo') {
+        // Flujo → Piezas: sale del efectivo disponible del fondo (movimiento negativo)
+        movContable = {
+          id: 'MOV' + uid(), socioId: wf.socioAportaId,
+          fecha: wf.entryDate || tod(), tipo: 'Adquisición',
+          monto: -watch.cost,
+          concepto: `Adquisición · ${watch.serial || id} · del flujo disponible`
+        }
+      } else {
+        // Aportación adicional: entra capital nuevo (movimiento positivo)
+        movContable = {
+          id: 'MOV' + uid(), socioId: wf.socioAportaId,
+          fecha: wf.entryDate || tod(), tipo: 'Aportación',
+          monto: +watch.cost,
+          concepto: `Aportación adicional · ${watch.serial || id}`
+        }
+      }
+    }
+
     // Optimistic update
-    setState(s => ({ ...s, watches: [...s.watches, watch] }))
+    setState(s => ({
+      ...s,
+      watches: [...s.watches, watch],
+      socios: movContable
+        ? s.socios.map(so => so.id !== movContable.socioId ? so : { ...so, movimientos: [...(so.movimientos || []), movContable] })
+        : s.socios
+    }))
+
     try {
       await db.saveWatch(watch)
-      logAction('create', 'inventario', 'pieza', `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)}`, watch.id)
-      toast('Pieza registrada en inventario')
+      if (movContable) await db.saveMovimientoSocio(movContable)
+      logAction('create', 'inventario', 'pieza', `Registró pieza ${watch.serial || watch.id} · ${fmt(watch.cost)} · ${wf.fuenteFondos === 'flujo' ? 'del flujo' : 'aportación nueva'}`, watch.id)
+      toast(`Pieza registrada · ${wf.fuenteFondos === 'flujo' ? '💵 Flujo → Piezas' : '➕ Nueva aportación registrada'}`)
       setShowAdd(false)
       setWf({ ...blank })
     } catch (e) {
-      // Rollback optimistic update
-      setState(s => ({ ...s, watches: s.watches.filter(w => w.id !== id) }))
+      // Rollback
+      setState(s => ({
+        ...s,
+        watches: s.watches.filter(w => w.id !== id),
+        socios: movContable
+          ? s.socios.map(so => so.id !== movContable.socioId ? so : { ...so, movimientos: (so.movimientos || []).filter(m => m.id !== movContable.id) })
+          : s.socios
+      }))
       toast('Error al registrar pieza: ' + e.message, 'error')
     } finally {
       setWatchSaving(false)
@@ -3592,6 +3630,26 @@ function InventarioModule({ state, setState }) {
               </Field>
             )}
           </FR>
+          {wf.modoAdquisicion === 'aportacion' && wf.socioAportaId && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: TM, letterSpacing: '.1em', marginBottom: 8 }}>FUENTE DE FONDOS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {[
+                  { val: 'flujo',     icon: '🔄', title: 'Del flujo disponible',      desc: 'Se usa efectivo que ya está en el fondo. No entra capital nuevo.' },
+                  { val: 'aportacion', icon: '💵', title: 'Nueva aportación de capital', desc: 'El socio inyecta dinero nuevo. Aumenta el capital total del fondo.' },
+                ].map(op => (
+                  <button key={op.val} onClick={() => setWf(f => ({ ...f, fuenteFondos: op.val }))}
+                    style={{ padding: '10px 14px', borderRadius: 5, cursor: 'pointer', textAlign: 'left',
+                      background: wf.fuenteFondos === op.val ? op.val === 'aportacion' ? GRN + '18' : BLU + '18' : S3,
+                      border: `1.5px solid ${wf.fuenteFondos === op.val ? op.val === 'aportacion' ? GRN : BLU : BR}` }}>
+                    <div style={{ fontSize: 16, marginBottom: 4 }}>{op.icon}</div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: wf.fuenteFondos === op.val ? op.val === 'aportacion' ? GRN : BLU : TX, letterSpacing: '.06em', marginBottom: 3 }}>{op.title.toUpperCase()}</div>
+                    <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 11, color: TD, lineHeight: 1.4 }}>{op.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {wf.modoAdquisicion === 'personalizado' && (
             <div style={{ background: S3, borderRadius: 4, padding: '10px 14px', marginBottom: 14 }}>
               <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: TM, marginBottom: 8 }}>SPLIT PERSONALIZADO</div>
