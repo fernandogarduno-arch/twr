@@ -1544,7 +1544,7 @@ function ReasonModal({ title, subtitle, label = "Razón *", placeholder = "Escri
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
           <Btn variant="secondary" small onClick={onClose} disabled={saving}>Cancelar</Btn>
           <Btn small onClick={handleConfirm} disabled={!canConfirm || saving}
-            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? WHITE : TD, border:'none' }}>
+            style={{ background: canConfirm ? confirmColor : S3, color: canConfirm ? TX : TD, border:'none' }}>
             {saving ? 'Procesando...' : confirmLabel}
           </Btn>
         </div>
@@ -2776,12 +2776,21 @@ function InventarioModule({ state, setState }) {
 
     if (watch.cost > 0 && stage !== 'oportunidad') {
       if (wf.modoAdquisicion === 'aportacion' && wf.socioAportaId && wf.fuenteFondos === 'aportacion') {
-        // Nueva aportación: entra capital NUEVO al fondo (positivo)
+        // Nueva aportación: el socio inyecta capital nuevo Y compra la pieza.
+        // Mov 1: Aportación +X  (entra dinero al fondo)
+        // Mov 2: Adquisición -X (sale a inventario)
+        // Resultado neto en flujo disponible: $0. Total inversión sube por X.
         movimientosContables.push({
           id: 'MOV' + uid(), socioId: wf.socioAportaId,
           fecha: wf.entryDate || tod(), tipo: 'Aportación',
           monto: +watch.cost,
-          concepto: `Aportación adicional · ${watch.serial || id}`
+          concepto: `Aportación · ${watch.serial || id}`
+        })
+        movimientosContables.push({
+          id: 'MOV' + uid(), socioId: wf.socioAportaId,
+          fecha: wf.entryDate || tod(), tipo: 'Adquisición',
+          monto: -watch.cost,
+          concepto: `Adquisición · ${watch.serial || id}`
         })
       } else {
         // Adquisición desde flujo existente: sale efectivo de cada fondo según split
