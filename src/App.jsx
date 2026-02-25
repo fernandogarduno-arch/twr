@@ -12,7 +12,7 @@ const sb = createClient(
       persistSession: true,
       storageKey: 'twr-auth-v4',
       detectSessionInUrl: true,
-      lock: (_name, _acquireTimeout, fn) => fn()
+      autoRefreshToken:   true,   // refresca token antes de que expire (no sobreescribir el lock nativo)
     }
   }
 )
@@ -80,12 +80,32 @@ const logAction = (action, module, entity, description, entityId = null) => {
   }).then(() => {})  // intentionally silent — never throw
 }
 
-// ── DB watchdog — timeout + console logging for every db call ──
-const DB_TIMEOUT_MS = 8000
+// ── Session guard — refresca token si está próximo a expirar o ya expiró ──
+async function ensureSession() {
+  const { data: { session }, error } = await sb.auth.getSession()
+  if (error) throw new Error('No se pudo verificar la sesión: ' + error.message)
+  if (!session) throw new Error('Sesión no encontrada — por favor vuelve a iniciar sesión')
+  // Refrescar si el token expira en menos de 3 minutos
+  const expiresAt  = session.expires_at * 1000
+  const msToExpiry = expiresAt - Date.now()
+  if (msToExpiry < 3 * 60 * 1000) {
+    console.log('[TWR AUTH] ⟳ Token próximo a expirar, refrescando...')
+    const { error: refreshError } = await sb.auth.refreshSession()
+    if (refreshError) throw new Error('Sesión expirada — por favor vuelve a iniciar sesión')
+    console.log('[TWR AUTH] ✓ Token renovado')
+  }
+}
+
+// ── DB watchdog — timeout + session refresh + console logging ──
+const DB_TIMEOUT_MS = 12000
 function withTimeout(fn, name) {
   return async function(...args) {
     const t0 = performance.now()
     console.log(`[TWR DB] ⏳ ${name}`, ...args.map(a => typeof a === 'object' ? JSON.stringify(a).slice(0,120) : a))
+    try { await ensureSession() } catch(sessionErr) {
+      console.error(`[TWR AUTH] ✗ Sesión inválida para ${name}:`, sessionErr.message)
+      throw sessionErr
+    }
     const timeout = new Promise((_, rej) =>
       setTimeout(() => rej(new Error(`[TWR DB] ⏰ TIMEOUT (${DB_TIMEOUT_MS/1000}s) en ${name} — verifica RLS y conexión`)), DB_TIMEOUT_MS)
     )
@@ -2842,33 +2862,18 @@ function InventarioModule({ state, setState }) {
 
   const confirmBajaPieza = async (razon) => {
     if (!selWatch) return
-    const updated = {
-      ...selWatch,
-      stage: 'baja',
-      status: 'Baja',
-      notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}`
-    }
-    // Optimistic UI update
+    const updated = { ...selWatch, stage: 'baja', status: 'Baja', notes: (selWatch.notes ? selWatch.notes + '\n' : '') + `[BAJA ${new Date().toLocaleDateString('es-MX')}] ${razon}` }
     setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : updated) }))
     try {
-      // Usamos saveWatch (upsert) en lugar de updateWatch (update) para garantizar
-      // compatibilidad con políticas RLS que permiten INSERT/upsert pero no UPDATE directo.
-      await db.saveWatch(updated)
-      await db.savePiezaEdit({
-        piezaId: selWatch.id,
-        campo: 'Baja',
-        valorAntes: selWatch.stage,
-        valorDespues: 'baja',
-        editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario'
-      })
+      await db.updateWatch(selWatch.id, { stage: 'baja', status: 'Baja', notes: updated.notes })
+      await db.savePiezaEdit({ piezaId: selWatch.id, campo: 'Baja', valorAntes: selWatch.stage, valorDespues: 'baja', editadoPor: _auditUser?.name || _auditUser?.email || 'Usuario' })
       logAction('delete', 'inventario', 'pieza', `Dio de baja pieza "${selWatch.serial || selWatch.id}" · Razón: ${razon}`, selWatch.id)
       toast('Pieza dada de baja · registrada en historial', 'info')
       setSelWatch(null)
       setShowBajaPieza(false)
     } catch(e) {
-      // Revert optimistic update on failure
       setState(s => ({ ...s, watches: s.watches.map(w => w.id !== selWatch.id ? w : selWatch) }))
-      toast('Error al dar de baja: ' + e.message, 'error')
+      toast('Error: ' + e.message, 'error')
     }
   }
 
@@ -6233,6 +6238,10 @@ export default function App() {
           logAction('login', 'sistema', 'sesión', `Inició sesión · rol: ${p.role}`)
           await loadData()
         }
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        // Actualizar authUser con el token renovado silenciosamente
+        setAuthUser(session.user)
+        console.log('[TWR AUTH] ✓ Sesión renovada automáticamente')
       } else if (event === 'SIGNED_OUT') {
         logAction('logout', 'sistema', 'sesión', 'Cerró sesión')
         _auditUser = null
